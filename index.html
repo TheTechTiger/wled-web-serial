@@ -1,0 +1,3159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0e10">
+<title>WLED · Web Serial</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23131518'/%3E%3Crect x='7' y='12' width='4' height='13' rx='2' fill='%23ff5d7a'/%3E%3Crect x='14' y='8' width='4' height='17' rx='2' fill='%234be0b0'/%3E%3Crect x='21' y='15' width='4' height='10' rx='2' fill='%23c0a6ff'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0d0e10; --bg-2:#121317; --panel:#181a1e; --panel-2:#1f2227; --panel-3:#272b31;
+  --line:#2a2d34; --line-soft:#22252b; --text:#f2f3f5; --muted:#969ba5; --muted-2:#70757f;
+  --blue:#4d9bff; --blue-soft:rgba(77,155,255,.13); --green:#3ddc84; --amber:#f0b34d;
+  --red:#ff6b6b; --radius:18px; --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;
+  --font:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --glow-rgb:255,160,0; --primary:#ffa500;
+}
+*{box-sizing:border-box}
+html{color-scheme:dark}
+
+.boot-loader{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;gap:16px;background:var(--bg);transition:opacity .45s ease,visibility .45s ease}
+.boot-loader.hidden{opacity:0;visibility:hidden;pointer-events:none}
+.boot-mark{display:flex;gap:6px;align-items:flex-end;height:34px}
+.boot-mark span{width:8px;border-radius:4px;background:linear-gradient(180deg,var(--accent),var(--accent-2));animation:bootBars 1s ease-in-out infinite}
+.boot-mark span:nth-child(2){animation-delay:.15s;height:26px}
+.boot-mark span:nth-child(1){height:18px}
+.boot-mark span:nth-child(3){height:30px;animation-delay:.3s}
+@keyframes bootBars{0%,100%{transform:scaleY(.55);opacity:.7}50%{transform:scaleY(1);opacity:1}}
+.boot-spinner{width:34px;height:34px;border:3px solid rgba(255,255,255,.12);border-top-color:var(--accent);border-radius:50%;animation:spin .75s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.boot-text{font-size:13px;color:var(--muted);letter-spacing:.02em}
+body{
+  margin:0;min-height:100vh;background:
+    radial-gradient(1000px 600px at 12% -20%,rgba(var(--glow-rgb),.10),transparent 60%),
+    radial-gradient(800px 500px at 100% 0%,rgba(77,155,255,.055),transparent 60%),
+    var(--bg);
+  color:var(--text);font-family:var(--font);font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(600px 300px at 50% 110%,rgba(var(--glow-rgb),.045),transparent 70%);}
+::selection{background:rgba(77,155,255,.35)}
+*{scrollbar-width:thin;scrollbar-color:#3a3e46 transparent}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#343840;border-radius:99px;border:2px solid var(--bg)}
+::-webkit-scrollbar-thumb:hover{background:#454a54}
+h1,h2,h3,p{margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:var(--blue)}
+.hidden{display:none!important}
+.icon{width:18px;height:18px;flex:none;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.svg-defs{position:absolute;width:0;height:0;overflow:hidden}
+
+/* top bar */
+.topbar{
+  position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:12px;
+  min-height:68px;padding:10px clamp(12px,2.5vw,24px);
+  background:rgba(12,13,15,.82);border-bottom:1px solid rgba(255,255,255,.06);
+  backdrop-filter:blur(22px) saturate(140%);-webkit-backdrop-filter:blur(22px) saturate(140%);
+  flex-wrap:wrap;
+}
+.brand{display:flex;align-items:center;gap:10px;flex:none;user-select:none}
+.brand-mark{display:flex;align-items:flex-end;gap:3px;width:37px;height:37px;padding:8px;border-radius:11px;
+  background:linear-gradient(135deg,rgba(255,255,255,.10),rgba(255,255,255,.025));
+  border:1px solid rgba(255,255,255,.10);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 6px 18px rgba(0,0,0,.3)}
+.brand-mark span{flex:1;border-radius:2px;background:linear-gradient(180deg,#ff5d7a,#ff9f43)}
+.brand-mark span:nth-child(2){height:78%;background:linear-gradient(180deg,#4be0b0,#4dabf7)}
+.brand-mark span:nth-child(3){height:55%;background:linear-gradient(180deg,#c0a6ff,#e599f7)}
+.brand-copy{display:flex;flex-direction:column;line-height:1}
+.brand-name{font-weight:800;font-size:18px;letter-spacing:.12em}
+.brand-sub{margin-top:5px;font-size:8px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted-2);font-weight:800}
+.conn-chip{display:flex;align-items:center;gap:8px;padding:6px 11px 6px 8px;border-radius:999px;
+  border:1px solid var(--line);background:var(--panel);min-height:38px;transition:.2s;text-align:left}
+.conn-chip:hover{background:var(--panel-2);border-color:#3b3f48}
+.conn-chip .dot{width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 3px rgba(240,179,77,.12);flex:none;transition:.2s}
+.conn-chip .icon{width:15px;height:15px;color:var(--muted)}
+.conn-text{display:flex;flex-direction:column;gap:1px;line-height:1.1}
+.conn-text strong{font-size:11px;font-weight:700}
+.conn-detail{font-size:9.5px;color:var(--muted-2);white-space:nowrap;max-width:190px;overflow:hidden;text-overflow:ellipsis}
+body[data-mode="serial"] .conn-chip .dot{background:var(--green);box-shadow:0 0 0 3px rgba(61,220,132,.12),0 0 12px rgba(61,220,132,.4)}
+#connChip.waiting .dot{background:var(--amber);box-shadow:0 0 0 3px rgba(240,179,77,.12);animation:pulse 1.8s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+.top-spacer{flex:1;min-width:4px}
+.bri-mini{display:flex;align-items:center;gap:8px;width:min(250px,23vw);min-width:160px}
+.bri-mini>.icon{width:16px;height:16px;color:var(--muted)}
+.bri-mini .range-wrap{flex:1}
+.bri-mini output{font:600 11px var(--mono);color:var(--muted);min-width:24px;text-align:right}
+.top-actions{display:flex;align-items:center;gap:2px}
+.icon-btn{width:38px;height:38px;display:inline-grid;place-items:center;border:1px solid transparent;border-radius:11px;
+  background:transparent;color:var(--muted);transition:.18s;flex:none;padding:0}
+.icon-btn:hover{color:var(--text);background:var(--panel-2);border-color:var(--line)}
+.icon-btn:active{transform:scale(.95)}
+.icon-btn.active{color:var(--blue);background:var(--blue-soft);border-color:rgba(77,155,255,.25)}
+.icon-btn.power.on{color:var(--green);background:rgba(61,220,132,.10);border-color:rgba(61,220,132,.20);box-shadow:0 0 20px rgba(61,220,132,.08)}
+.icon-btn .icon{width:19px;height:19px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid rgba(77,155,255,.8);outline-offset:2px
+}
+
+/* layout */
+.notice{width:min(1240px,calc(100% - 28px));margin:14px auto 0;padding:10px 13px;display:flex;align-items:center;gap:12px;
+  border:1px solid rgba(240,179,77,.24);border-radius:14px;
+  background:linear-gradient(90deg,rgba(240,179,77,.10),rgba(240,179,77,.025));font-size:12px}
+.notice-icon{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:none;
+  color:var(--amber);background:rgba(240,179,77,.12);border:1px solid rgba(240,179,77,.18)}
+.notice-icon .icon{width:16px;height:16px}
+.notice-copy{display:flex;flex-direction:column;gap:1px;min-width:0}
+.notice-copy strong{font-size:12px;font-weight:700;color:#f5d9a3}
+.notice-copy span{font-size:11.5px;color:#c6b492}
+.notice .btn{margin-left:auto;flex:none}
+body[data-mode="serial"] .notice{display:none}
+.content{width:min(1240px,100%);margin:0 auto;padding:22px clamp(14px,2.5vw,26px) 130px}
+.panel{display:none}
+.panel.active{display:block;animation:panelIn .32s ease both}
+@keyframes panelIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.panel-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:2px 2px 18px;flex-wrap:wrap}
+.eyebrow{margin:0 0 5px;font-size:9.5px;text-transform:uppercase;letter-spacing:.18em;color:var(--muted-2);font-weight:800;display:flex;align-items:center;gap:8px}
+.panel-head h1{margin:0;font-size:clamp(25px,3vw,34px);letter-spacing:-.045em;line-height:1.05;font-weight:750}
+.page-sub{margin:7px 0 0;color:var(--muted);font-size:12.5px;max-width:62ch}
+.panel-head-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+.colors-grid{display:grid;grid-template-columns:minmax(320px,412px) minmax(0,1fr);gap:18px;align-items:start}
+.effects-grid{display:grid;grid-template-columns:minmax(300px,376px) minmax(0,1fr);gap:18px;align-items:start}
+.segments-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.presets-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(188px,1fr));gap:12px}
+.info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.span-2{grid-column:1/-1}
+.card{background:linear-gradient(180deg,rgba(255,255,255,.024),rgba(255,255,255,0) 42%),var(--panel);
+  border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:0 18px 44px -36px rgba(0,0,0,.9);min-width:0}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.card h2{margin:0;font-size:14.5px;font-weight:700;letter-spacing:-.01em}
+.hint{font-size:10.5px;color:var(--muted-2);font-weight:550;white-space:nowrap}
+.divider{height:1px;background:var(--line-soft);margin:16px 0}
+.muted{color:var(--muted)}
+.mono{font-family:var(--mono)}
+
+/* buttons / forms */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:9px 14px;border-radius:11px;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--text);font-size:12px;font-weight:650;
+  transition:.18s;white-space:nowrap}
+.btn:hover{background:var(--panel-3);border-color:#3b3f48}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--blue);border-color:var(--blue);color:#07121f}
+.btn-primary:hover{background:#68adff;border-color:#68adff}
+.btn-danger{background:rgba(255,107,107,.09);border-color:rgba(255,107,107,.25);color:#ff9696}
+.btn-danger:hover{background:rgba(255,107,107,.16);border-color:rgba(255,107,107,.4)}
+.btn-ghost{background:transparent}
+.btn-sm{padding:7px 11px;font-size:11px;border-radius:9px}
+.btn .icon{width:15px;height:15px}
+.button-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.mini-select{appearance:none;background:var(--bg-2);border:1px solid var(--line);color:var(--text);border-radius:9px;
+  padding:7px 30px 7px 10px;font-size:11.5px;font-weight:600;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23969ba5' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 8px center;background-size:14px}
+.mini-select:hover{border-color:#3b3f48}
+.field-label{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2);display:block;margin-bottom:6px}
+.input,.select,textarea.input{width:100%;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;
+  padding:9px 11px;font-size:12px;color:var(--text);outline:none;transition:.18s}
+.input:focus,.select:focus,textarea.input:focus{border-color:rgba(77,155,255,.55);box-shadow:0 0 0 3px rgba(77,155,255,.09)}
+textarea.input{resize:vertical;font-family:var(--mono);font-size:11px;line-height:1.6}
+.select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23969ba5' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:14px;padding-right:34px;cursor:pointer}
+.search-box{position:relative;margin-bottom:10px}
+.search-box .icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted-2);width:15px;height:15px;pointer-events:none}
+.search-box input{width:100%;padding:10px 12px 10px 34px;border-radius:10px;border:1px solid var(--line);
+  background:var(--bg-2);color:var(--text);outline:none;font-size:12px;transition:.18s}
+.search-box input:focus{border-color:rgba(77,155,255,.55);box-shadow:0 0 0 3px rgba(77,155,255,.09)}
+.search-box input::placeholder{color:var(--muted-2)}
+.switch-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 0;border-top:1px solid var(--line-soft)}
+.switch-row:first-of-type{border-top:0}
+.switch-copy{display:flex;flex-direction:column;gap:2px}
+.switch-copy strong{font-size:12px;font-weight:650}
+.switch-copy small{font-size:10.5px;color:var(--muted-2)}
+.switch{position:relative;display:inline-flex;flex:none;width:38px;height:22px;cursor:pointer}
+.switch input{position:absolute;opacity:0;width:0;height:0}
+.switch .track{position:absolute;inset:0;border-radius:99px;background:var(--panel-3);border:1px solid var(--line);transition:.2s}
+.switch .track::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:#b9bdc5;transition:.2s;box-shadow:0 2px 5px rgba(0,0,0,.4)}
+.switch input:checked + .track{background:rgba(77,155,255,.9);border-color:rgba(77,155,255,.9)}
+.switch input:checked + .track::after{transform:translateX(16px);background:#fff}
+.switch input:focus-visible + .track{outline:2px solid rgba(77,155,255,.8);outline-offset:2px}
+
+/* sliders */
+.range-wrap{position:relative;height:28px;display:flex;align-items:center;border-radius:99px;min-width:0;--p:50%}
+.range-wrap::before{content:"";position:absolute;left:0;right:0;top:50%;height:7px;transform:translateY(-50%);
+  border-radius:99px;background:var(--track,#2a2e35);box-shadow:inset 0 1px 2px rgba(0,0,0,.35)}
+.range-wrap.fill::before{background:linear-gradient(90deg,var(--blue) 0 var(--p),#2a2e35 var(--p) 100%)}
+.range-wrap.track-hue::before{background:linear-gradient(90deg,#f00 0%,#ff0 17%,#0f0 33%,#0ff 50%,#00f 67%,#f0f 83%,#f00 100%)}
+.range-wrap.track-bri::before{background:linear-gradient(90deg,#333840,#c7ccd5)}
+.range-wrap.track-kelvin::before{background:linear-gradient(90deg,#ff9b3d,#ffd7a8,#fff6e8,#d7e8ff,#8db8ff)}
+.range-wrap.track-mono::before{background:linear-gradient(90deg,#111317,#fff)}
+.range-wrap.track-red::before{background:linear-gradient(90deg,#111317,#a02020,#ff4a4a)}
+.range-wrap.track-green::before{background:linear-gradient(90deg,#111317,#1f8a48,#4be08b)}
+.range-wrap.track-blue::before{background:linear-gradient(90deg,#111317,#2451a8,#5b9dff)}
+.range-wrap.small{height:18px}
+.range-wrap.small::before{height:4px}
+.range-wrap.small input.range::-webkit-slider-thumb{width:13px;height:13px;margin-top:-4.5px;border-width:2px}
+input.range{position:relative;z-index:1;width:100%;height:28px;background:transparent;-webkit-appearance:none;appearance:none;cursor:pointer;margin:0;min-width:0}
+input.range::-webkit-slider-runnable-track{height:28px;background:transparent;border:0}
+input.range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;
+  background:#fff;border:3px solid #141519;margin-top:5px;box-shadow:0 3px 10px rgba(0,0,0,.55)}
+input.range::-moz-range-track{height:7px;background:transparent;border:0}
+input.range::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid #141519;box-shadow:0 3px 10px rgba(0,0,0,.55)}
+.sliders{display:flex;flex-direction:column;gap:13px}
+.slider-row{display:flex;flex-direction:column;gap:6px;min-width:0}
+.slider-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.slider-top label,.slider-top span{font-size:11px;font-weight:650;color:var(--muted)}
+.slider-top output{font:600 10.5px var(--mono);color:var(--muted);white-space:nowrap}
+.advanced{margin-top:15px;border-top:1px solid var(--line-soft);padding-top:13px}
+.advanced summary{cursor:pointer;color:var(--muted);font-size:11px;font-weight:650;list-style:none;display:flex;align-items:center;gap:7px}
+.advanced summary::-webkit-details-marker{display:none}
+.advanced summary::before{content:"";width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:.2s;margin-left:2px}
+.advanced[open] summary::before{transform:rotate(45deg)}
+.advanced>div{margin-top:12px;display:flex;flex-direction:column;gap:12px}
+
+/* color */
+.wheel-wrap{display:flex;justify-content:center;padding:2px 0 16px}
+.wheel{position:relative;width:min(252px,62vw);aspect-ratio:1;border-radius:50%;cursor:crosshair;touch-action:none;outline:none;
+  background:conic-gradient(from 0deg,#ff0000,#ffff00,#00ff00,#00ffff,#0000ff,#ff00ff,#ff0000);
+  box-shadow:0 0 0 1px rgba(255,255,255,.07),0 30px 76px -28px rgba(var(--glow-rgb),.65),inset 0 0 30px rgba(0,0,0,.2)}
+.wheel::before{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,#fff 0%,#fff 6%,rgba(255,255,255,.94) 17%,rgba(255,255,255,.55) 40%,rgba(255,255,255,0) 71%)}
+.wheel::after{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.07),inset 0 0 40px rgba(0,0,0,.22)}
+.wheel:focus-visible{box-shadow:0 0 0 4px rgba(77,155,255,.5),0 30px 76px -28px rgba(var(--glow-rgb),.65)}
+.wheel-marker{position:absolute;left:50%;top:50%;width:21px;height:21px;border-radius:50%;transform:translate(-50%,-50%);
+  background:#fff;border:3px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.7),0 5px 16px rgba(0,0,0,.55);z-index:2;pointer-events:none}
+.wheel.dragging{cursor:grabbing}
+.color-slots{display:flex;justify-content:center;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.slot-btn{display:flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;border:1px solid var(--line);
+  background:var(--bg-2);color:var(--muted-2);font-size:9.5px;font-weight:800;letter-spacing:.04em;transition:.18s}
+.slot-btn .swatch{width:14px;height:14px;border-radius:50%;border:1px solid rgba(255,255,255,.2);flex:none}
+.slot-btn:hover{border-color:#3c414a;color:var(--muted)}
+.slot-btn.active{background:var(--blue-soft);border-color:rgba(77,155,255,.5);color:#cfe3ff}
+.hex-row{display:flex;align-items:center;gap:8px;margin:0 0 14px}
+.hex-field{flex:1;display:flex;align-items:center;gap:2px;background:var(--bg-2);border:1px solid var(--line);
+  border-radius:10px;padding:0 12px;height:38px;transition:.18s;min-width:0}
+.hex-field:focus-within{border-color:rgba(77,155,255,.55);box-shadow:0 0 0 3px rgba(77,155,255,.09)}
+.hex-field span{color:var(--muted-2);font-family:var(--mono);font-size:12px}
+.hex-field input{border:0;background:transparent;color:var(--text);width:100%;outline:none;font-family:var(--mono);
+  font-size:12px;letter-spacing:.05em;text-transform:uppercase;min-width:0}
+.hex-row .icon-btn{width:38px;height:38px;background:var(--bg-2);border-color:var(--line);border-radius:10px}
+.quick-colors{display:flex;justify-content:center;flex-wrap:wrap;gap:9px;margin-bottom:2px}
+.quick-color{width:29px;height:29px;border-radius:50%;border:2px solid rgba(255,255,255,.13);padding:0;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.18),0 2px 6px rgba(0,0,0,.25);transition:transform .16s,border-color .16s}
+.quick-color:hover{transform:translateY(-2px) scale(1.06);border-color:rgba(255,255,255,.5)}
+.quick-color.active{outline:2px solid var(--text);outline-offset:2px}
+.quick-color.random{display:grid;place-items:center;color:#fff;font-size:12px;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.8);
+  background:conic-gradient(from 45deg,#ff4d6d,#ffb84d,#5ee07d,#4dd7ff,#7f7dff,#f07dff,#ff4d6d)}
+.quick-color.random .icon{width:14px;height:14px}
+
+/* lists */
+.effect-list,.palette-list{display:flex;flex-direction:column;gap:5px;overflow-y:auto;overscroll-behavior:contain;padding-right:4px}
+.effect-list{max-height:min(660px,calc(100vh - 300px))}
+.palette-list{max-height:min(420px,calc(100vh - 430px))}
+.effect-row,.palette-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  padding:9px 10px;border-radius:10px;border:1px solid transparent;background:transparent;color:var(--muted);transition:.14s;min-height:40px}
+.effect-row:hover,.palette-row:hover{background:var(--panel-2);color:var(--text)}
+.effect-row.active{background:var(--blue-soft);border-color:rgba(77,155,255,.25);color:#e9f3ff}
+.effect-id{font:600 9.5px var(--mono);color:var(--muted-2);width:23px;flex:none;text-align:right}
+.effect-name{flex:1;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.effect-check{width:16px;height:16px;flex:none;color:var(--blue);opacity:0;display:grid;place-items:center}
+.effect-row.active .effect-check{opacity:1}
+.effect-check .icon{width:14px;height:14px}
+.palette-row{gap:11px;padding:7px 9px}
+.palette-swatch{width:46px;height:22px;border-radius:6px;flex:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+.palette-name{flex:1;font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.palette-row.active{background:var(--blue-soft);border-color:rgba(77,155,255,.25);color:#e9f3ff}
+.palette-check{width:16px;flex:none;color:var(--blue);opacity:0;display:grid;place-items:center}
+.palette-row.active .palette-check{opacity:1}
+.palette-check .icon{width:14px;height:14px}
+.empty-list{padding:22px 12px;text-align:center;color:var(--muted-2);font-size:11.5px}
+
+/* live state */
+.state-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.state-tile{background:var(--bg-2);border:1px solid var(--line-soft);border-radius:11px;padding:10px 11px;min-width:0}
+.state-tile .k{display:block;font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted-2);font-weight:800;margin-bottom:4px}
+.state-tile .v{font-size:12.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.state-tile .v .icon{width:14px;height:14px;color:var(--muted)}
+.state-dot{width:7px;height:7px;border-radius:50%;background:var(--muted-2);flex:none}
+.state-dot.on{background:var(--green);box-shadow:0 0 8px rgba(61,220,132,.5)}
+
+/* effects */
+.effect-current-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+.effect-current-head h2{font-size:clamp(21px,3vw,27px);letter-spacing:-.03em;line-height:1.1;margin:3px 0 0}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 7px;border-radius:6px;background:var(--panel-3);
+  border:1px solid var(--line);font:600 9px var(--mono);color:var(--muted);white-space:nowrap}
+.effect-preview{height:52px;border-radius:12px;margin-bottom:17px;border:1px solid rgba(255,255,255,.08);
+  background:linear-gradient(90deg,#ff8a3d,#ffd36b,#ff6b6b);position:relative;overflow:hidden;box-shadow:inset 0 0 30px rgba(0,0,0,.18)}
+.effect-preview::after{content:"";position:absolute;inset:-60% -20%;background:linear-gradient(100deg,transparent 35%,rgba(255,255,255,.3) 50%,transparent 65%);
+  transform:translateX(-100%);animation:sheen 7s ease-in-out infinite}
+@keyframes sheen{0%,55%{transform:translateX(-100%)}85%,100%{transform:translateX(100%)}}
+.effect-palette-preview{height:38px;border-radius:10px;border:1px solid rgba(255,255,255,.08);margin:2px 0 9px;box-shadow:inset 0 0 20px rgba(0,0,0,.15)}
+.small-meta{font-size:10.5px;color:var(--muted-2)}
+.custom-id-row{display:flex;align-items:center;gap:8px;margin-top:4px}
+.custom-id-row label{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--muted);font-weight:600}
+.custom-id-row input{width:70px;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:600 11px var(--mono);color:var(--text);outline:none}
+
+/* segments */
+.segment-card{background:linear-gradient(180deg,rgba(255,255,255,.024),rgba(255,255,255,0) 42%),var(--panel);
+  border:1px solid var(--line);border-radius:var(--radius);padding:15px;transition:.2s;min-width:0}
+.segment-card.active{border-color:rgba(77,155,255,.42);box-shadow:0 0 0 1px rgba(77,155,255,.08),0 18px 44px -36px rgba(0,0,0,.9)}
+.seg-top{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.seg-swatch{width:30px;height:30px;border-radius:9px;border:1px solid rgba(255,255,255,.14);flex:none;box-shadow:inset 0 0 12px rgba(0,0,0,.15)}
+.seg-title-wrap{flex:1;min-width:0}
+.seg-name-input{background:transparent;border:1px solid transparent;border-radius:6px;padding:2px 4px;margin-left:-4px;
+  font-size:12.5px;font-weight:700;color:var(--text);width:min(100%,220px);outline:none}
+.seg-name-input:hover{border-color:var(--line)}
+.seg-name-input:focus{border-color:rgba(77,155,255,.5);background:var(--bg-2)}
+.seg-sub{display:block;color:var(--muted-2);font-size:10px;margin-top:1px;padding-left:0}
+.seg-summary{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.seg-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 7px;border-radius:7px;background:var(--bg-2);
+  border:1px solid var(--line-soft);color:var(--muted);font-size:9.5px;font-weight:600;max-width:100%}
+.seg-pill .icon{width:12px;height:12px}
+.seg-pill span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:11px}
+.seg-field{display:flex;flex-direction:column;gap:4px;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:9px;padding:6px 8px}
+.seg-field label{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2);font-weight:800}
+.seg-field input[type=number]{background:transparent;border:0;color:var(--text);font:600 12px var(--mono);outline:none;width:100%;padding:0}
+.seg-field .row{display:flex;align-items:center;gap:5px}
+.seg-bri{display:flex;align-items:center;gap:8px;margin:0 0 10px}
+.seg-bri label{font-size:9.5px;color:var(--muted-2);font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.seg-bri .range-wrap{flex:1}
+.seg-bri output{font:600 10px var(--mono);color:var(--muted);width:24px;text-align:right}
+.seg-actions{display:flex;gap:6px;align-items:center}
+.seg-actions .btn{flex:1;font-size:10.5px;padding:7px 8px}
+.seg-actions .icon-btn{width:32px;height:32px;background:var(--bg-2);border-color:var(--line-soft)}
+.seg-actions .icon-btn:hover{background:var(--panel-2)}
+.seg-actions .icon-btn.danger:hover{color:var(--red);border-color:rgba(255,107,107,.3)}
+.seg-details{margin:10px 0 0;border-top:1px solid var(--line-soft);padding-top:9px}
+.seg-details summary{font-size:10px;color:var(--muted-2);cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;font-weight:600}
+.seg-details summary::-webkit-details-marker{display:none}
+.seg-details summary::before{content:"";width:4px;height:4px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg)}
+.seg-details[open] summary::before{transform:rotate(45deg)}
+.seg-more-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}
+.global-card{margin-top:18px}
+.global-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:end}
+.global-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* presets */
+.presets-note{display:flex;align-items:flex-start;gap:8px;margin:-4px 2px 16px;color:var(--muted-2);font-size:11px;max-width:75ch}
+.presets-note .icon{width:14px;height:14px;flex:none;margin-top:1px}
+.preset-card{position:relative;min-height:112px;border-radius:14px;border:1px solid var(--line);background:var(--panel);
+  padding:12px;display:flex;flex-direction:column;gap:8px;text-align:left;transition:.18s;overflow:hidden}
+.preset-card:hover{transform:translateY(-1px);border-color:#3c414a;background:var(--panel-2)}
+.preset-card.empty{border-style:dashed;background:transparent;color:var(--muted-2)}
+.preset-card.empty:hover{background:rgba(255,255,255,.015);border-color:#454a54}
+.preset-card.playing{border-color:rgba(77,155,255,.45);box-shadow:0 0 0 1px rgba(77,155,255,.08)}
+.preset-top{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%}
+.preset-slot{font:700 9px var(--mono);color:var(--muted-2);letter-spacing:.05em}
+.preset-status{display:flex;align-items:center;gap:5px;font-size:8.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--blue)}
+.preset-status .state-dot{width:5px;height:5px}
+.preset-name{font-size:12.5px;font-weight:700;color:var(--text);line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
+.preset-meta{font-size:10px;color:var(--muted-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
+.preset-strip{height:5px;border-radius:99px;margin-top:auto;background:linear-gradient(90deg,#444,#666);width:100%}
+.preset-hover-actions{position:absolute;top:7px;right:7px;display:flex;gap:3px;opacity:0;transition:.15s}
+.preset-card:hover .preset-hover-actions,.preset-card:focus-within .preset-hover-actions{opacity:1}
+.preset-hover-actions .icon-btn{width:25px;height:25px;border-radius:7px;background:rgba(10,11,13,.75);border:1px solid var(--line);backdrop-filter:blur(6px)}
+.preset-hover-actions .icon{width:13px;height:13px}
+.preset-add-through{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px}
+.preset-add-through .icon{width:16px;height:16px}
+.preset-add-through span{font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+
+/* info */
+.kv{display:flex;flex-direction:column}
+.kv-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:8px 0;border-top:1px solid var(--line-soft);min-height:34px}
+.kv-row:first-child{border-top:0;padding-top:0}
+.kv-row .k{font-size:11px;color:var(--muted-2);white-space:nowrap}
+.kv-row .v{font:600 11px var(--mono);color:var(--text);text-align:right;overflow-wrap:anywhere}
+.kv-row .v.good{color:var(--green)}
+.kv-row .v.warn{color:var(--amber)}
+.kv-row .v.bad{color:var(--red)}
+.conn-banner{display:flex;align-items:center;gap:10px;padding:10px 11px;border-radius:10px;background:var(--bg-2);
+  border:1px solid var(--line-soft);margin-bottom:13px}
+.conn-banner .dot{width:8px;height:8px;border-radius:50%;background:var(--amber);flex:none}
+body[data-mode="serial"] .conn-banner .dot{background:var(--green);box-shadow:0 0 10px rgba(61,220,132,.5)}
+.conn-banner .txt{display:flex;flex-direction:column;gap:1px;min-width:0}
+.conn-banner strong{font-size:11px;font-weight:700}
+.conn-banner span{font-size:10px;color:var(--muted-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.api-copy{font-size:11.5px;color:var(--muted);line-height:1.65}
+.api-copy strong{color:var(--text)}
+.code-line{display:block;margin-top:8px;padding:8px 10px;background:#0b0c0e;border:1px solid var(--line-soft);
+  border-radius:8px;font:500 10.5px var(--mono);color:#c7d1de;white-space:pre-wrap;overflow-wrap:anywhere}
+.raw-box{margin:0;padding:12px;background:#0b0c0e;border:1px solid var(--line-soft);border-radius:10px;
+  min-height:150px;max-height:340px;overflow:auto;font:500 10.5px/1.65 var(--mono);color:#bfc7d2;white-space:pre-wrap;overflow-wrap:anywhere}
+.copy-btn{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:var(--bg-2);border:1px solid var(--line-soft);color:var(--muted)}
+.copy-btn:hover{color:var(--text);background:var(--panel-2)}
+.info-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}
+.quick-command{display:flex;align-items:center;gap:8px;margin-top:8px}
+.quick-command code{flex:1;font:500 10.5px var(--mono);color:#c7d1de;background:#0b0c0e;border:1px solid var(--line-soft);
+  border-radius:8px;padding:7px 9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.quick-command .btn{padding:5px 9px;font-size:10px}
+
+/* bottom tabs */
+.tabbar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:45;display:flex;align-items:center;gap:3px;
+  padding:5px;border-radius:999px;background:rgba(24,26,30,.92);border:1px solid var(--line);
+  box-shadow:0 18px 48px rgba(0,0,0,.6);backdrop-filter:blur(22px) saturate(140%);-webkit-backdrop-filter:blur(22px) saturate(140%)}
+.tabbtn{display:flex;align-items:center;gap:7px;padding:9px 14px;border:0;border-radius:999px;background:transparent;
+  color:var(--muted);font-size:11.5px;font-weight:650;transition:.18s;white-space:nowrap}
+.tabbtn .icon{width:17px;height:17px}
+.tabbtn:hover{color:var(--text);background:rgba(255,255,255,.04)}
+.tabbtn.active{background:var(--panel-3);color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.tabbtn.active .icon{color:var(--blue)}
+
+/* toast */
+.toast{position:fixed;left:50%;bottom:94px;transform:translate(-50%,14px);z-index:100;display:flex;align-items:center;gap:9px;
+  padding:10px 14px;border-radius:11px;background:#202329;border:1px solid #343943;color:var(--text);font-size:12px;
+  box-shadow:0 16px 40px rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:.24s;max-width:min(440px,calc(100vw - 28px))}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.toast .icon{width:15px;height:15px;color:var(--green);flex:none}
+.toast.error{border-color:rgba(255,107,107,.35);background:#2a1d20}
+.toast.error .icon{color:var(--red)}
+.toast.warn{border-color:rgba(240,179,77,.35);background:#292319}
+.toast.warn .icon{color:var(--amber)}
+
+/* dialogs */
+dialog{border:1px solid var(--line);border-radius:20px;background:linear-gradient(180deg,rgba(255,255,255,.03),transparent 40%),var(--panel);
+  color:var(--text);padding:0;width:min(560px,calc(100vw - 28px));max-height:min(86vh,800px);box-shadow:0 30px 100px rgba(0,0,0,.65);overflow:hidden}
+dialog::backdrop{background:rgba(5,6,8,.68);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px)}
+dialog[open]{display:flex;flex-direction:column;animation:dialogIn .22s ease both}
+@keyframes dialogIn{from{opacity:0;transform:translateY(8px) scale(.995)}to{opacity:1;transform:none}}
+.dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:19px 20px 14px;border-bottom:1px solid var(--line-soft);flex:none}
+.dialog-head h2{margin:0;font-size:18px;letter-spacing:-.025em}
+.dialog-head p{margin:5px 0 0;color:var(--muted-2);font-size:11px}
+.dialog-head .icon-btn{width:32px;height:32px;border-radius:9px;margin:-2px -4px 0 0}
+.dialog-body{padding:18px 20px 20px;overflow-y:auto;min-height:0}
+.dialog-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:18px}
+.dialog-actions .btn{min-width:84px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-grid .full{grid-column:1/-1}
+.form-field{display:flex;flex-direction:column;min-width:0}
+.dialog-note{font-size:10.5px;color:var(--muted-2);line-height:1.55;margin-top:10px}
+.callout{display:flex;align-items:flex-start;gap:9px;padding:10px 11px;border-radius:10px;background:rgba(240,179,77,.07);
+  border:1px solid rgba(240,179,77,.18);color:#d9c49c;font-size:10.5px;line-height:1.55;margin-top:12px}
+.callout .icon{width:14px;height:14px;color:var(--amber);flex:none;margin-top:1px}
+.callout.info{background:var(--blue-soft);border-color:rgba(77,155,255,.18);color:#b9d3f7}
+.callout.info .icon{color:var(--blue)}
+.callout.good{background:rgba(61,220,132,.07);border-color:rgba(61,220,132,.18);color:#b2e7cb}
+.callout.good .icon{color:var(--green)}
+.advanced-section{margin-top:18px;border-top:1px solid var(--line-soft);padding-top:14px}
+.advanced-section summary{cursor:pointer;font-size:11.5px;font-weight:650;color:var(--muted);list-style:none;display:flex;align-items:center;gap:7px}
+.advanced-section summary::-webkit-details-marker{display:none}
+.advanced-section summary::before{content:"";width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg)}
+.advanced-section[open] summary::before{transform:rotate(45deg)}
+.advanced-section .inner{padding-top:12px;display:flex;flex-direction:column;gap:11px}
+.duration-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.chip{padding:5px 9px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--muted);font-size:10px;font-weight:600}
+.chip:hover{color:var(--text);border-color:#454a54}
+.chip.active{background:var(--blue-soft);border-color:rgba(77,155,255,.35);color:#cfe3ff}
+
+/* terminal */
+.terminal{position:fixed;left:50%;bottom:92px;transform:translate(-50%,14px);z-index:70;width:min(760px,calc(100vw - 24px));
+  height:min(390px,48vh);display:flex;flex-direction:column;background:rgba(17,19,22,.98);border:1px solid #343943;
+  border-radius:15px;box-shadow:0 30px 90px rgba(0,0,0,.7);backdrop-filter:blur(20px);opacity:0;pointer-events:none;transition:.22s;overflow:hidden}
+.terminal.open{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
+.terminal-head{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);flex:none;background:rgba(255,255,255,.015)}
+.terminal-head .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);flex:none}
+body[data-mode="serial"] .terminal-head .dot{background:var(--green);box-shadow:0 0 8px rgba(61,220,132,.5)}
+.terminal-head strong{font-size:10.5px;letter-spacing:.02em;font-weight:650}
+.terminal-head .badge{margin-left:2px}
+.terminal-actions{margin-left:auto;display:flex;gap:4px;align-items:center}
+.terminal-actions .icon-btn{width:28px;height:28px;border-radius:7px}
+.terminal-actions .icon-btn .icon{width:14px;height:14px}
+.terminal-body{flex:1;overflow-y:auto;padding:9px 12px;font:500 10.5px/1.65 var(--mono);color:#aeb6c2;background:#0b0c0e;min-height:0}
+.log-line{display:flex;gap:8px;padding:1px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.log-line .dir{flex:none;width:24px;font-weight:700;color:var(--muted-2)}
+.log-line.tx .dir,.log-line.tx .txt{color:#77b2ff}
+.log-line.rx .dir,.log-line.rx .txt{color:#7fdba5}
+.log-line.sys .dir,.log-line.sys .txt{color:#7b818b}
+.log-line.err .dir,.log-line.err .txt{color:#ff8d8d}
+.log-line .txt{min-width:0}
+.terminal-form{display:flex;align-items:center;gap:7px;padding:8px 10px;border-top:1px solid var(--line);flex:none;background:rgba(255,255,255,.015)}
+.terminal-form .prompt{font:700 10px var(--mono);color:var(--blue);padding-left:2px}
+.terminal-form input{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:7px 9px;
+  font:500 10.5px var(--mono);color:var(--text);outline:none;min-width:0}
+.terminal-form input:focus{border-color:rgba(77,155,255,.5)}
+.terminal-form .btn{padding:6px 11px;font-size:10px}
+.terminal-hint{font-size:9px;color:var(--muted-2);padding:5px 12px 8px;border-top:1px solid var(--line-soft);background:rgba(255,255,255,.01)}
+
+@media(max-width:980px){
+  .colors-grid,.effects-grid{grid-template-columns:1fr}
+  .effect-list{max-height:380px}
+  .palette-list{max-height:330px}
+  .bri-mini{width:min(210px,24vw)}
+}
+@media(max-width:820px){
+  .info-grid{grid-template-columns:1fr}
+  .span-2{grid-column:auto}
+  .conn-detail{max-width:120px}
+  .topbar{gap:9px}
+  .brand-sub{display:none}
+  .bri-mini{min-width:140px}
+}
+@media(max-width:680px){
+  .topbar{padding:9px 12px;min-height:0}
+  .brand-mark{width:32px;height:32px;padding:7px;border-radius:9px}
+  .brand-name{font-size:16px}
+  .conn-chip{padding:5px 8px;min-height:32px}
+  .conn-text strong{font-size:9.5px}
+  .conn-detail{display:none}
+  .conn-chip .icon{width:13px;height:13px}
+  .bri-mini{order:20;width:100%;max-width:none;flex-basis:100%;padding:2px 2px 0;min-width:0}
+  .top-spacer{display:none}
+  .top-actions .icon-btn{width:33px;height:33px}
+  .top-actions .icon-btn .icon{width:17px;height:17px}
+  #topInfoBtn{display:none}
+  .content{padding:16px 12px 112px}
+  .notice{flex-wrap:wrap;margin-top:10px;padding:9px 11px}
+  .notice .btn{margin-left:0;width:100%}
+  .panel-head{margin-bottom:14px;align-items:flex-start}
+  .panel-head h1{font-size:27px}
+  .panel-head .btn{padding:8px 11px}
+  .card{padding:15px;border-radius:16px}
+  .wheel{width:min(238px,66vw)}
+  .segments-grid{grid-template-columns:1fr}
+  .presets-grid{grid-template-columns:repeat(auto-fill,minmax(148px,1fr))}
+  .global-grid{grid-template-columns:1fr}
+  .tabbar{left:0;right:0;bottom:0;transform:none;border-radius:22px 22px 0 0;justify-content:space-around;
+    padding:7px 8px calc(7px + env(safe-area-inset-bottom));border-left:0;border-right:0;border-bottom:0;gap:0}
+  .tabbtn{flex-direction:column;gap:4px;padding:5px 10px;font-size:9px;min-width:54px;border-radius:12px}
+  .tabbtn .icon{width:19px;height:19px}
+  .terminal{bottom:78px;height:min(380px,52vh);border-radius:14px}
+  .toast{bottom:84px}
+  .dialog-head{padding:16px 17px 13px}
+  .dialog-body{padding:15px 17px 18px}
+  dialog{width:calc(100vw - 20px)}
+  .form-grid{grid-template-columns:1fr}
+  .form-grid .full{grid-column:auto}
+}
+@media(max-width:390px){
+  .brand-copy{display:none}
+  .top-actions .icon-btn{width:31px;height:31px}
+  .topbar{gap:6px}
+  .tabbtn{min-width:50px;padding:5px 6px}
+  .quick-color{width:27px;height:27px}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
+}
+</style>
+</head>
+<body data-mode="preview">
+  <div class="boot-loader" id="bootLoader" aria-live="polite" aria-busy="true">
+    <div class="boot-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="boot-spinner" aria-hidden="true"></div>
+    <div class="boot-text">Loading WLED Web Serial…</div>
+  </div>
+<svg class="svg-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></symbol>
+<symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></symbol>
+<symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+<symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></symbol>
+<symbol id="i-usb" viewBox="0 0 24 24"><circle cx="10" cy="7" r="1"/><circle cx="4" cy="20" r="1"/><path d="M4.7 19.3 19 5M21 3l-3 1 2 2-1-3Z"/><path d="M9.26 7.68 5 12l2 5M10 14l5 2 3.5-3.5M18 12l1-1 1 1-1 1"/></symbol>
+<symbol id="i-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.7 1.5-1.5 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.8.7-1.5 1.5-1.5H16c3.3 0 6-2.7 6-6 0-4.9-4.5-8.8-10-8.8Z"/></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3ZM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15Z"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/></symbol>
+<symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M19 21 12 16l-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16Z"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M3 21v-5h5M21 3v5h-5"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-dice" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r=".8" fill="currentColor"/><circle cx="16" cy="8" r=".8" fill="currentColor"/><circle cx="8" cy="16" r=".8" fill="currentColor"/><circle cx="16" cy="16" r=".8" fill="currentColor"/><circle cx="12" cy="12" r=".8" fill="currentColor"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+<symbol id="i-freeze" viewBox="0 0 24 24"><path d="M12 2v20M4.9 4.9l14.2 14.2M19.1 4.9 4.9 19.1M2 12h20"/><path d="m9 5 3 3 3-3M9 19l3-3 3 3M5 9l3 3-3 3M19 9l-3 3 3 3"/></symbol>
+<symbol id="i-reverse" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4M3 6h18M7 22l-4-4 4-4M21 18H3"/></symbol>
+<symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5M9 7V2M15 7V2M6 7h12v4a6 6 0 0 1-12 0V7Z"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="m7 3 14 9-14 9V3Z"/></symbol>
+<symbol id="i-rotate" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8"/><path d="M3 3v5h5"/></symbol>
+</svg>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+    <span class="brand-copy"><span class="brand-name">WLED</span><span class="brand-sub">web serial</span></span>
+  </div>
+  <button class="conn-chip" id="connChip" type="button" title="Connection settings">
+    <span class="dot" aria-hidden="true"></span>
+    <svg class="icon" aria-hidden="true"><use href="#i-usb"/></svg>
+    <span class="conn-text"><strong id="connLabel">Preview</strong><span class="conn-detail" id="connDetail">no USB device</span></span>
+  </button>
+  <div class="top-spacer"></div>
+  <div class="bri-mini" title="Master brightness">
+    <svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg>
+    <div class="range-wrap track-bri small" id="topBriTrack">
+      <input class="range" id="topBrightness" type="range" min="1" max="255" value="160" aria-label="Brightness">
+    </div>
+    <output id="topBrightnessValue">160</output>
+  </div>
+  <div class="top-actions">
+    <button class="icon-btn power on" id="powerBtn" type="button" title="Power" aria-label="Power">
+      <svg class="icon" aria-hidden="true"><use href="#i-power"/></svg>
+    </button>
+    <button class="icon-btn" id="timerBtn" type="button" title="Nightlight timer" aria-label="Nightlight timer">
+      <svg class="icon" aria-hidden="true"><use href="#i-timer"/></svg>
+    </button>
+    <button class="icon-btn" id="consoleBtn" type="button" title="Serial console" aria-label="Serial console">
+      <svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>
+    </button>
+    <button class="icon-btn" id="topInfoBtn" type="button" title="Device info" aria-label="Device info">
+      <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
+    </button>
+    <button class="icon-btn" id="settingsBtn" type="button" title="Connection &amp; settings" aria-label="Connection and settings">
+      <svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="notice" id="previewNotice">
+  <span class="notice-icon"><svg class="icon" aria-hidden="true"><use href="#i-usb"/></svg></span>
+  <div class="notice-copy">
+    <strong>Preview mode</strong>
+    <span>Connect a WLED controller over USB, then use these controls to send JSON directly to the light.</span>
+  </div>
+  <button class="btn btn-primary btn-sm" id="connectNowBtn" type="button">
+    <svg class="icon" aria-hidden="true"><use href="#i-usb"/></svg> Connect USB
+  </button>
+</div>
+
+<main class="content">
+  <section class="panel active" id="panel-colors">
+    <div class="panel-head">
+      <div>
+        <p class="eyebrow">Control</p>
+        <h1>Colors</h1>
+      </div>
+      <div class="panel-head-actions">
+        <select class="mini-select" id="colorSegSelect" aria-label="Active segment"></select>
+      </div>
+    </div>
+    <div class="colors-grid">
+      <div class="stack">
+        <section class="card color-card">
+          <div class="card-head"><h2>Color</h2><span class="hint" id="colorModeHint">tap or drag the wheel</span></div>
+          <div class="wheel-wrap">
+            <div class="wheel" id="colorWheel" tabindex="0" role="slider" aria-label="Hue and saturation" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Hue 32 degrees, saturation 100 percent">
+              <span class="wheel-marker" id="wheelMarker"></span>
+            </div>
+          </div>
+          <div class="color-slots" id="colorSlots"></div>
+          <div class="hex-row">
+            <label class="hex-field"><span>#</span><input id="hexInput" type="text" maxlength="8" autocomplete="off" spellcheck="false" aria-label="Hex color"></label>
+            <button class="icon-btn" id="hexApplyBtn" type="button" title="Apply hex color" aria-label="Apply hex color"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></button>
+          </div>
+          <div class="quick-colors" id="quickColors"></div>
+          <div class="divider"></div>
+          <div class="sliders">
+            <div class="slider-row">
+              <div class="slider-top"><label for="hueSlider">Hue</label><output id="hueValue">32°</output></div>
+              <div class="range-wrap track-hue"><input class="range" id="hueSlider" type="range" min="0" max="359" value="32"></div>
+            </div>
+            <div class="slider-row">
+              <div class="slider-top"><label for="satSlider">Saturation</label><output id="satValue">100%</output></div>
+              <div class="range-wrap" id="satTrack"><input class="range" id="satSlider" type="range" min="0" max="100" value="100"></div>
+            </div>
+            <div class="slider-row">
+              <div class="slider-top"><label for="kelvinSlider">White temperature</label><output id="kelvinValue">4000 K</output></div>
+              <div class="range-wrap track-kelvin"><input class="range" id="kelvinSlider" type="range" min="1900" max="10091" step="1" value="4000"></div>
+            </div>
+          </div>
+          <details class="advanced">
+            <summary>RGB &amp; white channels</summary>
+            <div>
+              <div class="slider-row">
+                <div class="slider-top"><label for="redSlider">Red</label><output id="redValue">255</output></div>
+                <div class="range-wrap track-red"><input class="range" id="redSlider" type="range" min="0" max="255" value="255"></div>
+              </div>
+              <div class="slider-row">
+                <div class="slider-top"><label for="greenSlider">Green</label><output id="greenValue">160</output></div>
+                <div class="range-wrap track-green"><input class="range" id="greenSlider" type="range" min="0" max="255" value="160"></div>
+              </div>
+              <div class="slider-row">
+                <div class="slider-top"><label for="blueSlider">Blue</label><output id="blueValue">0</output></div>
+                <div class="range-wrap track-blue"><input class="range" id="blueSlider" type="range" min="0" max="255" value="0"></div>
+              </div>
+              <div class="slider-row">
+                <div class="slider-top"><label for="whiteSlider">White channel</label><output id="whiteValue">0</output></div>
+                <div class="range-wrap track-mono"><input class="range" id="whiteSlider" type="range" min="0" max="255" value="0"></div>
+              </div>
+            </div>
+          </details>
+        </section>
+      </div>
+      <div class="stack">
+        <section class="card">
+          <div class="card-head"><h2>Palettes</h2><span class="hint" id="paletteCount"></span></div>
+          <div class="search-box">
+            <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+            <input id="paletteSearch" type="text" placeholder="Search palettes" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="palette-list" id="paletteList"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Live state</h2><button class="copy-btn" id="stateRefreshBtn" type="button" title="Refresh state from device" aria-label="Refresh state"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button></div>
+          <div class="state-grid">
+            <div class="state-tile"><span class="k">Power</span><span class="v"><span class="state-dot on" id="statePowerDot"></span><span id="statePower">On</span></span></div>
+            <div class="state-tile"><span class="k">Brightness</span><span class="v" id="stateBrightness">160</span></div>
+            <div class="state-tile"><span class="k">Effect</span><span class="v" id="stateEffect">Solid</span></div>
+            <div class="state-tile"><span class="k">Palette</span><span class="v" id="statePalette">Default</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </section>
+  <section class="panel" id="panel-effects">
+    <div class="panel-head">
+      <div>
+        <p class="eyebrow">Animation</p>
+        <h1>Effects</h1>
+      </div>
+      <div class="panel-head-actions">
+        <select class="mini-select" id="effectSegSelect" aria-label="Active segment"></select>
+      </div>
+    </div>
+    <div class="effects-grid">
+      <section class="card">
+        <div class="card-head"><h2>Effect modes</h2><span class="hint" id="effectCount"></span></div>
+        <div class="search-box">
+          <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+          <input id="effectSearch" type="text" placeholder="Search effects" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="effect-list" id="effectList"></div>
+      </section>
+      <div class="stack">
+        <section class="card">
+          <div class="effect-current-head">
+            <div>
+              <p class="eyebrow">Now playing <span class="badge" id="effectIdBadge">ID 0</span></p>
+              <h2 id="currentEffectName">Solid</h2>
+            </div>
+            <button class="icon-btn active" id="freezeBtn" type="button" title="Freeze effect" aria-label="Freeze effect">
+              <svg class="icon" aria-hidden="true"><use href="#i-freeze"/></svg>
+            </button>
+          </div>
+          <div class="effect-preview" id="effectPreview"></div>
+          <div class="sliders">
+            <div class="slider-row">
+              <div class="slider-top"><label for="speedSlider">Speed</label><output id="speedValue">128</output></div>
+              <div class="range-wrap fill" id="speedTrack"><input class="range" id="speedSlider" type="range" min="0" max="255" value="128"></div>
+            </div>
+            <div class="slider-row">
+              <div class="slider-top"><label for="intensitySlider">Intensity</label><output id="intensityValue">128</output></div>
+              <div class="range-wrap fill" id="intensityTrack"><input class="range" id="intensitySlider" type="range" min="0" max="255" value="128"></div>
+            </div>
+          </div>
+          <div class="button-row" style="margin-top:14px">
+            <button class="btn btn-sm" id="randomEffectBtn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-dice"/></svg> Random</button>
+            <button class="btn btn-sm" id="paletteJumpBtn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-palette"/></svg> Palette</button>
+          </div>
+          <details class="advanced">
+            <summary>Advanced</summary>
+            <div class="custom-id-row">
+              <label for="effectIdInput">Effect ID <input id="effectIdInput" type="number" min="0" max="254" value="0"></label>
+              <button class="btn btn-sm" id="setEffectIdBtn" type="button">Set</button>
+            </div>
+          </details>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Palette</h2><span class="hint" id="effectPaletteHint"></span></div>
+          <div class="effect-palette-preview" id="effectPalettePreview"></div>
+          <p class="muted" id="effectPaletteName" style="font-size:11.5px;font-weight:600">Default</p>
+          <p class="small-meta" style="margin-top:4px">Palettes shape palette-aware effects.</p>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-segments">
+    <div class="panel-head">
+      <div>
+        <p class="eyebrow">Strip</p>
+        <h1>Segments</h1>
+        <p class="page-sub">Split the strip into independent zones. Changes are sent per segment over serial.</p>
+      </div>
+      <button class="btn btn-primary" id="addSegmentBtn" type="button">
+        <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg> Add segment
+      </button>
+    </div>
+    <div class="segments-grid" id="segmentsGrid"></div>
+    <section class="card global-card">
+      <div class="card-head"><h2>Global</h2><span class="hint">applies to the whole light</span></div>
+      <div class="global-grid">
+        <div class="slider-row">
+          <div class="slider-top"><label for="transitionSlider">Transition time</label><output id="transitionValue">0.7 s</output></div>
+          <div class="range-wrap fill" id="transitionTrack"><input class="range" id="transitionSlider" type="range" min="0" max="65.5" step="0.1" value="0.7"></div>
+        </div>
+        <div class="global-actions">
+          <button class="btn btn-sm" id="resetSegmentsBtn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg> Reset segments</button>
+          <button class="btn btn-sm" id="configureSegmentsBtn" type="button" title="Create four segments for a 60-LED frame (0-13, 14-34, 35-48, 49-59)"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg> 4-seg layout</button>
+        </div>
+      </div>
+    </section>
+  </section>
+
+  <section class="panel" id="panel-presets">
+    <div class="panel-head">
+      <div>
+        <p class="eyebrow">Memory</p>
+        <h1>Presets</h1>
+        <p class="page-sub">Save the current look to a slot, then recall it with one click.</p>
+      </div>
+      <button class="btn btn-primary" id="savePresetBtn" type="button">
+        <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg> Save current
+      </button>
+    </div>
+    <p class="presets-note"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg> Names and preview gradients live in this browser. Applying a preset sends its slot ID to WLED; existing device presets may show a generic name.</p>
+    <div class="presets-grid" id="presetsGrid"></div>
+  </section>
+
+  <section class="panel" id="panel-info">
+    <div class="panel-head">
+      <div>
+        <p class="eyebrow">Status</p>
+        <h1>Info</h1>
+      </div>
+      <div class="panel-head-actions">
+        <button class="btn" id="infoRefreshBtn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg> Refresh state</button>
+        <button class="btn btn-danger" id="rebootBtn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-power"/></svg> Reboot</button>
+      </div>
+    </div>
+    <div class="info-grid">
+      <section class="card">
+        <div class="card-head"><h2>Connection</h2><span class="badge" id="infoModeBadge">PREVIEW</span></div>
+        <div class="conn-banner">
+          <span class="dot"></span>
+          <div class="txt"><strong id="infoConnTitle">No serial device</strong><span id="infoConnSub">Using simulated preview values</span></div>
+        </div>
+        <div class="kv" id="connKv"></div>
+        <div class="info-actions">
+          <button class="btn btn-sm btn-primary" id="infoConnectBtn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-usb"/></svg> Connect USB</button>
+          <button class="btn btn-sm hidden" id="infoDisconnectBtn" type="button">Disconnect</button>
+          <button class="btn btn-sm" id="infoConsoleBtn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg> Console</button>
+        </div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Device</h2><span class="hint" id="deviceHint">sample data</span></div>
+        <div class="kv" id="deviceKv"></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>JSON API</h2><span class="badge">WEBSERIAL</span></div>
+        <p class="api-copy">Commands are newline-delimited JSON written to the serial port. WLED replies with a JSON object when a command asks for one with <strong>{"v":true}</strong>.</p>
+        <code class="code-line">{"on":true,"bri":160}
+{"seg":[{"id":0,"col":[[255,160,0,0]]}]}</code>
+        <div class="quick-command"><code>{"v":true}</code><button class="btn btn-sm" data-command='{"v":true}' type="button">Send</button></div>
+        <div class="quick-command"><code>{"seg":[...],"v":true}</code><button class="btn btn-sm" id="copyExampleBtn" type="button">Copy</button></div>
+        <div class="info-actions">
+          <button class="btn btn-sm" id="apiConsoleBtn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg> Open console</button>
+        </div>
+        <p class="dialog-note">Serial replies contain <span class="mono">state</span> and <span class="mono">info</span> only. Effect and palette names are built in; import custom lists under advanced settings.</p>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Power</h2><span class="hint">from info.leds</span></div>
+        <div class="kv" id="powerKv"></div>
+      </section>
+      <section class="card span-2">
+        <div class="card-head"><h2>Last JSON response</h2><button class="copy-btn" id="copyRawBtn" type="button" title="Copy response" aria-label="Copy response"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button></div>
+        <pre class="raw-box" id="rawResponse">No response yet. Connect a device and send {"v":true} to read state and info.</pre>
+      </section>
+    </div>
+  </section>
+</main>
+<nav class="tabbar" aria-label="Main sections">
+  <button class="tabbtn active" data-tab="colors" type="button"><svg class="icon" aria-hidden="true"><use href="#i-palette"/></svg><span>Colors</span></button>
+  <button class="tabbtn" data-tab="effects" type="button"><svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg><span>Effects</span></button>
+  <button class="tabbtn" data-tab="segments" type="button"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg><span>Segments</span></button>
+  <button class="tabbtn" data-tab="presets" type="button"><svg class="icon" aria-hidden="true"><use href="#i-bookmark"/></svg><span>Presets</span></button>
+  <button class="tabbtn" data-tab="info" type="button"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span>Info</span></button>
+</nav>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span id="toastText"></span>
+</div>
+
+<dialog id="settingsDialog">
+  <div class="dialog-head">
+    <div><p class="eyebrow">Device link</p><h2>Connection &amp; settings</h2><p>Talk to WLED through the Web Serial API.</p></div>
+    <button class="icon-btn" type="button" data-close title="Close" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="dialog-body">
+    <div class="conn-banner">
+      <span class="dot"></span>
+      <div class="txt"><strong id="settingsConnTitle">No serial device</strong><span id="settingsConnSub">Preview mode — controls update locally</span></div>
+    </div>
+    <div class="form-grid">
+      <div class="form-field">
+        <label class="field-label" for="baudSelect">Baud rate</label>
+        <select class="select" id="baudSelect">
+          <option value="115200">115200</option>
+          <option value="230400">230400</option>
+          <option value="460800">460800</option>
+          <option value="921600">921600</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label class="field-label" for="lineEndingSelect">Command terminator</label>
+        <select class="select" id="lineEndingSelect">
+          <option value="lf">LF (\n)</option>
+          <option value="crlf">CRLF (\r\n)</option>
+          <option value="none">None</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="switch-row" style="border-top:0;padding-top:2px">
+        <span class="switch-copy"><strong>Live state sync</strong><small>Request {"v":true} every few seconds while idle.</small></span>
+        <span class="switch"><input type="checkbox" id="autoSyncToggle" checked><span class="track"></span></span>
+      </label>
+    </div>
+    <div class="callout info" id="browserSupportNote">
+      <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
+      <span>Web Serial works in Chromium-based desktop browsers over HTTPS or localhost. Close any other serial monitor before connecting.</span>
+    </div>
+    <div class="dialog-actions">
+      <button class="btn btn-danger hidden" id="disconnectBtn" type="button">Disconnect</button>
+      <button class="btn btn-primary" id="connectBtn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-usb"/></svg> Connect USB</button>
+      <button class="btn" type="button" data-close>Done</button>
+    </div>
+    <details class="advanced-section">
+      <summary>Effect &amp; palette catalogs</summary>
+      <div class="inner">
+        <p class="dialog-note" style="margin:0">WLED's serial reply does not include effect or palette names. These built-in catalogs map array indexes to IDs. Paste a JSON string array from <span class="mono">/json/eff</span> or <span class="mono">/json/pal</span> if your firmware differs.</p>
+        <div class="form-field">
+          <label class="field-label" for="effectsCatalogInput">Effects (JSON array)</label>
+          <textarea class="input" id="effectsCatalogInput" rows="3" spellcheck="false"></textarea>
+        </div>
+        <div class="button-row">
+          <button class="btn btn-sm" id="applyEffectsCatalog" type="button">Apply effects</button>
+          <button class="btn btn-sm btn-ghost" id="resetEffectsCatalog" type="button">Reset</button>
+        </div>
+        <div class="form-field">
+          <label class="field-label" for="palettesCatalogInput">Palettes (JSON array)</label>
+          <textarea class="input" id="palettesCatalogInput" rows="3" spellcheck="false"></textarea>
+        </div>
+        <div class="button-row">
+          <button class="btn btn-sm" id="applyPalettesCatalog" type="button">Apply palettes</button>
+          <button class="btn btn-sm btn-ghost" id="resetPalettesCatalog" type="button">Reset</button>
+        </div>
+      </div>
+    </details>
+  </div>
+</dialog>
+
+<dialog id="timerDialog">
+  <div class="dialog-head">
+    <div><p class="eyebrow">Automation</p><h2>Nightlight</h2><p>Fade the light down over time.</p></div>
+    <button class="icon-btn" type="button" data-close title="Close" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="dialog-body">
+    <label class="switch-row" style="border-top:0;padding-top:0">
+      <span class="switch-copy"><strong>Enable nightlight</strong><small>Starts counting down after you apply.</small></span>
+      <span class="switch"><input type="checkbox" id="nlEnabled"><span class="track"></span></span>
+    </label>
+    <div class="slider-row" style="margin-top:14px">
+      <div class="slider-top"><label for="nlDuration">Duration</label><output id="nlDurationValue">60 min</output></div>
+      <div class="range-wrap fill" id="nlDurationTrack"><input class="range" id="nlDuration" type="range" min="1" max="240" value="60"></div>
+      <div class="duration-chips" id="nlChips">
+        <button class="chip" data-dur="5" type="button">5m</button>
+        <button class="chip" data-dur="10" type="button">10m</button>
+        <button class="chip" data-dur="30" type="button">30m</button>
+        <button class="chip active" data-dur="60" type="button">60m</button>
+      </div>
+    </div>
+    <div class="form-grid" style="margin-top:14px">
+      <div class="form-field">
+        <label class="field-label" for="nlMode">Fade mode</label>
+        <select class="select" id="nlMode">
+          <option value="0">Instant</option>
+          <option value="1">Fade</option>
+          <option value="2">Color fade</option>
+          <option value="3">Sunrise</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label class="field-label" for="nlTarget">Target brightness</label>
+        <input class="input" id="nlTarget" type="number" min="0" max="255" value="0">
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button class="btn" type="button" data-close>Cancel</button>
+      <button class="btn btn-primary" id="applyTimerBtn" type="button">Apply</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="presetDialog">
+  <div class="dialog-head">
+    <div><p class="eyebrow">Remember this</p><h2>Save preset</h2><p>Write the current light state to a slot.</p></div>
+    <button class="icon-btn" type="button" data-close title="Close" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="dialog-body">
+    <div class="form-grid">
+      <div class="form-field">
+        <label class="field-label" for="presetSlotSelect">Slot</label>
+        <select class="select" id="presetSlotSelect"></select>
+      </div>
+      <div class="form-field">
+        <label class="field-label" for="presetNameInput">Name</label>
+        <input class="input" id="presetNameInput" type="text" maxlength="32" autocomplete="off">
+      </div>
+    </div>
+    <div class="callout" id="presetOverwriteNote" style="display:none">
+      <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+      <span>This slot is already saved. Saving will overwrite it.</span>
+    </div>
+    <div class="dialog-actions">
+      <button class="btn" type="button" data-close>Cancel</button>
+      <button class="btn btn-primary" id="confirmSavePresetBtn" type="button">Save preset</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="confirmDialog">
+  <div class="dialog-head">
+    <div><h2 id="confirmTitle">Are you sure?</h2><p id="confirmSub">This action cannot be undone.</p></div>
+    <button class="icon-btn" type="button" data-close title="Close" aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="dialog-body">
+    <p class="muted" id="confirmMessage" style="font-size:12.5px"></p>
+    <div class="dialog-actions">
+      <button class="btn" id="confirmCancelBtn" type="button">Cancel</button>
+      <button class="btn btn-danger" id="confirmOkBtn" type="button">Delete</button>
+    </div>
+  </div>
+</dialog>
+
+<section class="terminal" id="terminal" aria-label="Serial console" aria-hidden="true">
+  <div class="terminal-head">
+    <span class="dot"></span>
+    <strong>Serial console</strong>
+    <span class="badge" id="terminalModeBadge">PREVIEW</span>
+    <div class="terminal-actions">
+      <button class="icon-btn" id="terminalRefresh" type="button" title="Request state" aria-label="Request state"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+      <button class="icon-btn" id="terminalClear" type="button" title="Clear console" aria-label="Clear console"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>
+      <button class="icon-btn" id="terminalClose" type="button" title="Close console" aria-label="Close console"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+  </div>
+  <div class="terminal-body" id="terminalLog" role="log" aria-live="polite"></div>
+  <form class="terminal-form" id="terminalForm">
+    <span class="prompt">TX</span>
+    <input id="terminalInput" type="text" placeholder='{"v":true}' autocomplete="off" spellcheck="false" aria-label="JSON command">
+    <button class="btn btn-primary" type="submit">Send</button>
+  </form>
+  <div class="terminal-hint">Enter sends JSON. In preview mode commands are logged but not written to a port.</div>
+</section>
+<script>
+(() => {
+'use strict';
+
+/* ------------------------------------------------------------------ *
+ *  Catalogs                                                           *
+ * ------------------------------------------------------------------ */
+const DEFAULT_EFFECTS = [
+  'Solid','Blink','Breathe','Wipe','Wipe Random','Random Colors','Sweep','Dynamic','Colorloop','Rainbow',
+  'Scan','Dual Scan','Fade','Chase','Chase Rainbow','Running','Saw','Twinkle','Dissolve','Dissolve Rnd',
+  'Sparkle','Dark Sparkle','Sparkle+','Strobe','Strobe Rainbow','Mega Strobe','Blink Rainbow','Android','Chase','Chase Random',
+  'Chase Rainbow','Chase Flash','Chase Flash Rnd','Rainbow Runner','Colorful','Traffic Light','Sweep Random','Running 2','Red & Blue','Stream',
+  'Scanner','Lighthouse','Fireworks','Rain','Merry Christmas','Fire Flicker','Gradient','Loading','In Out','In In',
+  'Out Out','Out In','Circus','Halloween','Tri Chase','Tri Wipe','Tri Fade','Lightning','ICU','Multi Comet',
+  'Dual Scanner','Stream 2','Oscillate','Pride 2015','Juggle','Palette','Fire 2012','Colorwaves','BPM','Fill Noise',
+  'Noise 1','Noise 2','Noise 3','Noise 4','Colortwinkle','Lake','Meteor','Smooth Meteor','Railway','Ripple'
+];
+const DEFAULT_PALETTES = [
+  'Default','Random Cycle','Primary Color','Based on Primary','Set Colors','Based on Set','Party','Cloud','Lava','Ocean',
+  'Forest','Rainbow','Rainbow Bands','Sunset','Rivendell','Breeze','Red & Blue','Yellowout','Analogous','Splash',
+  'Pastel','Sunset 2','Beech','Vintage','Departure','Landscape','Beach','Sherbet','Hult','Hult 64',
+  'Drywet','Jul','Grintage','Rewhi','Tertiary','Fire','Icefire','Cyane','Light Pink','Autumn',
+  'Magenta','Magred','Yelmag','Yelblu','Orange & Teal','Tiamat','April Night'
+];
+const PALETTE_GRADIENTS = {
+  'Default':'linear-gradient(90deg,#1c1f24,#3c414a,#ff9d2e)',
+  'Random Cycle':'linear-gradient(90deg,#ff3366,#ff9d2e,#ffe14d,#4be08b,#4da9ff,#a26bff,#ff3366)',
+  'Primary Color':'linear-gradient(90deg,#14161a,var(--primary))',
+  'Based on Primary':'linear-gradient(90deg,#14161a,var(--primary),#f4f6fa)',
+  'Set Colors':'linear-gradient(90deg,#ff4d6d,#4da9ff,#4be08b)',
+  'Based on Set':'linear-gradient(90deg,#1a1d22,#ff4d6d,#4da9ff)',
+  'Party':'linear-gradient(90deg,#ff2d75,#ffd84d,#31e981,#3fa9ff,#b06bff)',
+  'Cloud':'linear-gradient(90deg,#49525e,#a8b5c4,#eef4fb,#8d9aab)',
+  'Lava':'linear-gradient(90deg,#1a0604,#7a1205,#ff4a0a,#ffd23f,#ff7b00)',
+  'Ocean':'linear-gradient(90deg,#03141f,#064663,#0a8fa8,#37d5d6,#b9f8f6)',
+  'Forest':'linear-gradient(90deg,#071d12,#0c4a28,#2a8a45,#9ac94e,#f2e69a)',
+  'Rainbow':'linear-gradient(90deg,#ff0040,#ff9d00,#ffee00,#35e05f,#00c8ff,#415bff,#c236ff)',
+  'Rainbow Bands':'linear-gradient(90deg,#ff0040 0 16%,#ff9d00 16% 32%,#ffee00 32% 48%,#35e05f 48% 64%,#00c8ff 64% 80%,#c236ff 80% 100%)',
+  'Sunset':'linear-gradient(90deg,#1b0b2e,#7d1f63,#f04b57,#ff9a44,#ffe08a)',
+  'Rivendell':'linear-gradient(90deg,#12271f,#376b4b,#9ab36a,#e4d7a1,#6a8caf)',
+  'Breeze':'linear-gradient(90deg,#0b1d2a,#146a7a,#40c9c0,#c6f7e2,#4d8dff)',
+  'Red & Blue':'linear-gradient(90deg,#ff263f,#5a0a14,#0a1d5a,#2c6bff)',
+  'Yellowout':'linear-gradient(90deg,#2a2100,#d7a700,#ffe75c,#fff9c4)',
+  'Analogous':'linear-gradient(90deg,#ff3d81,#ff7c43,#ffb347,#ff9ac1,#b54dff)',
+  'Splash':'linear-gradient(90deg,#0b1f33,#00a3c4,#ffe36e,#ff5470,#6d3cff)',
+  'Pastel':'linear-gradient(90deg,#ffc2d1,#ffe0b5,#d9f7be,#bde0fe,#d7c6ff)',
+  'Sunset 2':'linear-gradient(90deg,#2b0b20,#8d1b3d,#e63946,#ff9f1c,#ffd166)',
+  'Beech':'linear-gradient(90deg,#1f1609,#6b4c1e,#c79a4a,#f2d7a0,#6e8b3d)',
+  'Vintage':'linear-gradient(90deg,#261a12,#8c5a2b,#d9ad6a,#7d9c78,#4c5c6b)',
+  'Departure':'linear-gradient(90deg,#071b22,#0b6e6e,#44c8a8,#f8e07c,#ff6b57)',
+  'Landscape':'linear-gradient(90deg,#07140f,#1e6a45,#8bc34a,#f5d76e,#78909c)',
+  'Beach':'linear-gradient(90deg,#041d2e,#0a98c9,#66e0dc,#ffe6b8,#f7b267)',
+  'Sherbet':'linear-gradient(90deg,#ff7aa2,#ffb36b,#ffe66d,#9ee493,#69c9ff)',
+  'Hult':'linear-gradient(90deg,#061426,#0e6f8f,#46c1b6,#f6e27a,#ff5c8a)',
+  'Hult 64':'linear-gradient(90deg,#061426,#0e6f8f,#46c1b6,#f6e27a,#ff5c8a)',
+  'Drywet':'linear-gradient(90deg,#3a2e18,#a8853d,#79a6a1,#2b6f8f)',
+  'Jul':'linear-gradient(90deg,#2a0509,#a30f1c,#ff3b30,#f8e7c9,#3f7a3a)',
+  'Grintage':'linear-gradient(90deg,#0b1a12,#2d5a2d,#8fbf5f,#c9b37e)',
+  'Rewhi':'linear-gradient(90deg,#190707,#9c1b1b,#ff4d2e,#ffd1a8,#fff6ea)',
+  'Tertiary':'linear-gradient(90deg,#4c1d95,#db2777,#f59e0b,#10b981)',
+  'Fire':'linear-gradient(90deg,#190502,#6e1204,#e33203,#ffb000,#fff0b3)',
+  'Icefire':'linear-gradient(90deg,#021b2e,#0a79a8,#e6fbff,#ff8c42,#a81111)',
+  'Cyane':'linear-gradient(90deg,#021118,#006b7f,#00d4ff,#b8f7ff)',
+  'Light Pink':'linear-gradient(90deg,#2a0c18,#c85c86,#ffb3c9,#ffe3ec)',
+  'Autumn':'linear-gradient(90deg,#1c0903,#7a2d08,#d76a19,#f2b134,#6b3f1d)',
+  'Magenta':'linear-gradient(90deg,#1c0619,#8e0b7a,#ff21d0,#ff9eea)',
+  'Magred':'linear-gradient(90deg,#1e0610,#8b0b32,#ff1f5a,#ff9f9f)',
+  'Yelmag':'linear-gradient(90deg,#251b00,#d3a000,#ffe23d,#ff46c8)',
+  'Yelblu':'linear-gradient(90deg,#242000,#d5bb00,#fff06a,#2f7bff)',
+  'Orange & Teal':'linear-gradient(90deg,#07252b,#0e8f8f,#37d5c8,#ff9f43,#ff6b35)',
+  'Tiamat':'linear-gradient(90deg,#04141d,#0b7b8a,#44d6c4,#ffe082,#f06292)',
+  'April Night':'linear-gradient(90deg,#080817,#3b2b73,#8c5bd8,#f7a8d8,#ffd6a5)'
+};
+const QUICK_COLORS = ['#ff4d4d','#ff9d2e','#ffd93d','#7ee787','#4dd7b8','#4da9ff','#7c6bff','#e879f9','#ffffff','#000000'];
+const COLOR_SLOT_NAMES = ['Fx','Bg','Cs'];
+const PRESET_SLOTS = 24;
+const EFFECT_STORE_KEY = 'wled.webserial.prefs.v1';
+const PRESET_STORE_KEY = 'wled.webserial.presets.v1';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ------------------------------------------------------------------ *
+ *  Utilities                                                          *
+ * ------------------------------------------------------------------ */
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
+const round = (n, d = 0) => { const m = 10 ** d; return Math.round(n * m) / m; };
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+const deepClone = v => (typeof structuredClone === 'function' ? structuredClone(v) : JSON.parse(JSON.stringify(v)));
+
+function loadJSON(key, fallback) {
+  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
+  catch { return fallback; }
+}
+function saveJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage may be unavailable */ }
+}
+function rgbToHex(r, g, b) {
+  return '#' + [r, g, b].map(v => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0')).join('');
+}
+function hexToRgb(hex) {
+  let h = String(hex).trim().replace(/^#/, '');
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  if (!/^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(h)) return null;
+  return {
+    r: parseInt(h.slice(0, 2), 16),
+    g: parseInt(h.slice(2, 4), 16),
+    b: parseInt(h.slice(4, 6), 16),
+    w: h.length === 8 ? parseInt(h.slice(6, 8), 16) : 0
+  };
+}
+function hsvToRgb(h, s, v) {
+  h = ((h % 360) + 360) % 360;
+  s = clamp(s, 0, 100) / 100;
+  v = clamp(v, 0, 100) / 100;
+  const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else { r = c; b = x; }
+  return { r: Math.round((r + m) * 255), g: Math.round((g + m) * 255), b: Math.round((b + m) * 255) };
+}
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return { h, s: max === 0 ? 0 : (d / max) * 100, v: max * 100 };
+}
+function formatUptime(sec) {
+  sec = Math.max(0, Number(sec) || 0);
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  if (d) return `${d}d ${h}h ${m}m`;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${sec % 60}s`;
+  return `${Math.floor(sec)}s`;
+}
+function formatBytes(n) {
+  n = Number(n) || 0;
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' kB';
+  return (n / 1024 / 1024).toFixed(2) + ' MB';
+}
+function timeAgo(ts) {
+  if (!ts) return 'never';
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 2) return 'just now';
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  return Math.floor(s / 3600) + 'h ago';
+}
+function getInfo() { return state.info || {}; }
+function getLedInfo() { return getInfo().leds || {}; }
+function maxSegments() { return Math.max(1, Number(getLedInfo().maxseg) || 16); }
+function totalLeds() { return Math.max(1, Number(getLedInfo().count) || 60); }
+
+/* ------------------------------------------------------------------ *
+ *  State                                                              *
+ * ------------------------------------------------------------------ */
+const prefs = Object.assign({
+  baud: 115200,
+  lineEnding: 'lf',
+  autoSync: true,
+  effects: null,
+  palettes: null
+}, loadJSON(EFFECT_STORE_KEY, {}));
+
+let effectCatalog = Array.isArray(prefs.effects) && prefs.effects.length
+  ? prefs.effects.map(String) : DEFAULT_EFFECTS.slice();
+let paletteCatalog = Array.isArray(prefs.palettes) && prefs.palettes.length
+  ? prefs.palettes.map(String) : DEFAULT_PALETTES.slice();
+
+const presetStore = Object.assign({ meta: {}, snapshots: {} }, loadJSON(PRESET_STORE_KEY, {}));
+if (!isObj(presetStore.meta)) presetStore.meta = {};
+if (!isObj(presetStore.snapshots)) presetStore.snapshots = {};
+
+const demoInfo = {
+  name: 'WLED Light', ver: '0.15.0', vid: 2503010, brand: 'WLED', product: 'FOSS',
+  arch: 'esp32', core: '3.3.0', mac: 'a0b765c3d2e1',
+  leds: { count: 60, rgbw: true, lc: 7, cct: true, pwr: 1420, maxpwr: 2500, maxseg: 16, fps: 42 },
+  freeheap: 188416, uptime: 18423, ip: ''
+};
+
+const state = {
+  mode: 'preview',
+  connected: false,
+  handshake: false,
+  on: true,
+  brightness: 160,
+  transition: 0.7,
+  nightlight: { on: false, dur: 60, mode: 1, tbri: 0, rem: -1 },
+  currentPreset: -1,
+  activeSegmentId: 0,
+  selectedSlot: 0,
+  segments: [{
+    id: 0, name: 'Segment 1', start: 0, stop: 60, len: 60, on: true, bri: 255,
+    colors: [[255,160,0,0],[0,0,0,0],[0,0,0,0]],
+    fx: 0, sx: 128, ix: 128, pal: 0, rev: false, sel: true, grp: 1, spc: 0, frz: false
+  }],
+  info: deepClone(demoInfo),
+  infoIsDemo: true,
+  lastResponse: null,
+  lastResponseText: '',
+  lastRxAt: 0,
+  lastTxAt: 0,
+  hsv: { h: 32, s: 100 },
+  activeTab: 'colors',
+  portLabel: '',
+  serialStats: { tx: 0, rx: 0 },
+  terminalOpen: false,
+  firstInteraction: false
+};
+
+const ui = {};
+const serial = {
+  port: null, writer: null, reader: null, keepReading: false,
+  readLoop: null, rxBuffer: '', decoder: null, waitingForReply: false,
+  handshakeAttempts: 0, handshakeTimer: null, syncTimer: null
+};
+let pendingChannels = new Map();
+let channelFlushTimer = null;
+let lastInteraction = 0;
+let lastUserActivity = Date.now();
+let toastTimer = null;
+let confirmCallback = null;
+let presetDialogSlot = 1;
+let wheelDragging = false;
+
+function activeSegment() {
+  let seg = state.segments.find(s => s.id === state.activeSegmentId);
+  if (!seg) seg = state.segments[0];
+  if (!seg) {
+    seg = { id: 0, name: 'Segment 1', start: 0, stop: totalLeds(), len: totalLeds(), on: true, bri: 255,
+      colors: [[255,160,0,0],[0,0,0,0],[0,0,0,0]], fx: 0, sx: 128, ix: 128, pal: 0, rev: false, sel: true, grp: 1, spc: 0, frz: false };
+    state.segments.push(seg);
+  }
+  return seg;
+}
+function activeColor() {
+  const seg = activeSegment();
+  const slot = clamp(state.selectedSlot, 0, 2);
+  const c = (seg.colors && seg.colors[slot]) || [0,0,0,0];
+  return { r: Number(c[0]) || 0, g: Number(c[1]) || 0, b: Number(c[2]) || 0, w: Number(c[3]) || 0 };
+}
+function effectName(id) {
+  const n = effectCatalog[id];
+  return n && n !== 'RSVD' && n !== '-' ? n : `Effect ${id}`;
+}
+function paletteName(id) {
+  return paletteCatalog[id] || `Palette ${id}`;
+}
+function presetName(id) {
+  return presetStore.meta[id]?.name || `Preset ${id}`;
+}
+function effectRow(id) {
+  return state.segments.find(s => s.id === state.activeSegmentId)?.fx ?? state.segments[0]?.fx ?? 0;
+}
+
+function paletteGradient(id) {
+  const name = paletteCatalog[id] || '';
+  if (PALETTE_GRADIENTS[name]) return PALETTE_GRADIENTS[name];
+  if (/rainbow|random/i.test(name)) return PALETTE_GRADIENTS['Rainbow'];
+  if (/fire|lava/i.test(name)) return PALETTE_GRADIENTS['Fire'];
+  if (/ocean|ice|cyan/i.test(name)) return PALETTE_GRADIENTS['Ocean'];
+  if (/forest|green/i.test(name)) return PALETTE_GRADIENTS['Forest'];
+  const h = Math.round((id * 137.508 + 28) % 360);
+  return `linear-gradient(90deg,hsl(${h} 55% 12%),hsl(${h} 80% 42%),hsl(${(h + 62) % 360} 86% 62%))`;
+}
+function currentGradient() {
+  const c = activeColor();
+  const hex = rgbToHex(c.r, c.g, c.b);
+  const dark = rgbToHex(Math.round(c.r * .2), Math.round(c.g * .2), Math.round(c.b * .2));
+  const light = rgbToHex(Math.min(255, Math.round(c.r + (255 - c.r) * .5)), Math.min(255, Math.round(c.g + (255 - c.g) * .5)), Math.min(255, Math.round(c.b + (255 - c.b) * .5)));
+  return `linear-gradient(90deg,${dark},${hex},${light})`;
+}
+function effectGradient(seg) {
+  return seg && seg.pal > 0 ? paletteGradient(seg.pal) : currentGradient();
+}
+function updateTheme() {
+  const c = activeColor();
+  const root = document.documentElement;
+  root.style.setProperty('--glow-rgb', `${c.r},${c.g},${c.b}`);
+  root.style.setProperty('--primary', rgbToHex(c.r, c.g, c.b));
+}
+function setRange(input, value) {
+  if (!input) return;
+  input.value = value;
+  const wrap = input.closest('.range-wrap');
+  if (wrap) {
+    const min = Number(input.min) || 0, max = Number(input.max) || 100;
+    const p = max > min ? ((Number(value) - min) / (max - min)) * 100 : 0;
+    wrap.style.setProperty('--p', clamp(p, 0, 100) + '%');
+  }
+}
+function setElRange(id, value) {
+  const input = ui[id];
+  if (input) { setRange(input, value); }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Rendering: header, colors, lists                                   *
+ * ------------------------------------------------------------------ */
+function renderConnection() {
+  document.body.dataset.mode = state.mode;
+  const serialMode = state.mode === 'serial';
+  ui.connLabel.textContent = serialMode ? 'USB' : 'Preview';
+  if (serialMode) {
+    ui.connDetail.textContent = state.handshake
+      ? `${getInfo().name || 'WLED'} · v${getInfo().ver || '?'}`
+      : (state.portLabel || 'waiting for reply');
+  } else {
+    ui.connDetail.textContent = 'no USB device';
+  }
+  ui.connChip.classList.toggle('waiting', serialMode && !state.handshake);
+  ui.settingsConnTitle.textContent = serialMode ? (state.handshake ? 'USB device connected' : 'Serial port open') : 'No serial device';
+  ui.settingsConnSub.textContent = serialMode
+    ? (state.handshake ? `${getInfo().name || 'WLED'} · ${state.portLabel || 'serial port'}` : 'Port is open — waiting for a JSON reply')
+    : 'Preview mode — controls update locally';
+  ui.connectBtn.classList.toggle('hidden', serialMode);
+  ui.disconnectBtn.classList.toggle('hidden', !serialMode);
+  ui.infoConnectBtn.classList.toggle('hidden', serialMode);
+  ui.infoDisconnectBtn.classList.toggle('hidden', !serialMode);
+  ui.infoModeBadge.textContent = serialMode ? 'SERIAL' : 'PREVIEW';
+  ui.terminalModeBadge.textContent = serialMode ? (state.handshake ? 'CONNECTED' : 'WAITING') : 'PREVIEW';
+  ui.infoConnTitle.textContent = serialMode ? (state.handshake ? 'Web Serial link live' : 'Waiting for WLED') : 'No serial device';
+  ui.infoConnSub.textContent = serialMode
+    ? (state.portLabel || 'Serial port') + ' · ' + prefs.baud + ' baud'
+    : 'Using simulated preview values';
+  ui.infoModeBadge.classList.toggle('active', serialMode);
+  if (ui.baudSelect) {
+    ui.baudSelect.disabled = serialMode;
+    ui.baudSelect.title = serialMode ? 'Disconnect before changing the baud rate' : '';
+  }
+}
+function renderPower() {
+  ui.powerBtn.classList.toggle('on', !!state.on);
+  ui.powerBtn.setAttribute('aria-pressed', state.on ? 'true' : 'false');
+  ui.statePower.textContent = state.on ? 'On' : 'Off';
+  ui.statePowerDot.classList.toggle('on', !!state.on);
+  ui.timerBtn.classList.toggle('active', !!state.nightlight.on);
+}
+function renderBrightness() {
+  const b = clamp(Math.round(state.brightness), 1, 255);
+  setElRange('topBrightness', b);
+  ui.topBrightnessValue.textContent = b;
+  ui.stateBrightness.textContent = b;
+}
+function renderColor() {
+  const seg = activeSegment();
+  const c = activeColor();
+  const hsv = rgbToHsv(c.r, c.g, c.b);
+  if (hsv.s > 0.1) state.hsv.h = hsv.h;
+  state.hsv.s = hsv.s;
+  const hue = Math.round(state.hsv.h || 0);
+  const sat = Math.round(state.hsv.s || 0);
+  const markerAngle = (state.hsv.h || 0) * Math.PI / 180;
+  const radius = clamp(state.hsv.s, 0, 100) * 0.455;
+  const left = 50 + Math.sin(markerAngle) * radius;
+  const top = 50 - Math.cos(markerAngle) * radius;
+  ui.wheelMarker.style.left = left + '%';
+  ui.wheelMarker.style.top = top + '%';
+  ui.wheelMarker.style.background = rgbToHex(c.r, c.g, c.b);
+  ui.colorWheel.setAttribute('aria-valuetext', `Hue ${hue} degrees, saturation ${sat} percent`);
+  setElRange('hueSlider', hue);
+  setElRange('satSlider', sat);
+  ui.hueValue.textContent = hue + '°';
+  ui.satValue.textContent = sat + '%';
+  const satRgb = hsvToRgb(state.hsv.h, 100, 100);
+  ui.satTrack.style.setProperty('--track', `linear-gradient(90deg,#9aa0aa,${rgbToHex(satRgb.r, satRgb.g, satRgb.b)})`);
+  const cct = Number(seg.cct) || 4000;
+  setElRange('kelvinSlider', clamp(cct, 1900, 10091));
+  ui.kelvinValue.textContent = Math.round(cct) + ' K';
+  setElRange('redSlider', c.r); setElRange('greenSlider', c.g); setElRange('blueSlider', c.b); setElRange('whiteSlider', c.w);
+  ui.redValue.textContent = c.r; ui.greenValue.textContent = c.g; ui.blueValue.textContent = c.b; ui.whiteValue.textContent = c.w;
+  ui.hexInput.value = rgbToHex(c.r, c.g, c.b).slice(1);
+  $$('.quick-color', ui.quickColors).forEach(el => {
+    el.classList.toggle('active', el.dataset.color && el.dataset.color.toLowerCase() === rgbToHex(c.r, c.g, c.b));
+  });
+  $$('.slot-btn', ui.colorSlots).forEach((el, i) => {
+    el.classList.toggle('active', i === state.selectedSlot);
+    const cc = seg.colors[i] || [0,0,0,0];
+    const sw = el.querySelector('.swatch');
+    if (sw) sw.style.background = rgbToHex(cc[0], cc[1], cc[2]);
+  });
+  updateTheme();
+  const segSelect = ui.colorSegSelect;
+  if (segSelect && segSelect.value !== String(seg.id)) segSelect.value = String(seg.id);
+  const effectSeg = ui.effectSegSelect;
+  if (effectSeg && effectSeg.value !== String(seg.id)) effectSeg.value = String(seg.id);
+  renderStateTiles();
+  updateSegmentSummary(seg.id);
+}
+function renderStateTiles() {
+  const seg = activeSegment();
+  ui.stateEffect.textContent = effectName(seg.fx);
+  ui.stateEffect.title = effectName(seg.fx);
+  ui.statePalette.textContent = paletteName(seg.pal);
+  ui.statePalette.title = paletteName(seg.pal);
+}
+function renderColorSlotsStatic() {
+  ui.colorSlots.innerHTML = [0,1,2].map(i => `
+    <button class="slot-btn${i === 0 ? ' active' : ''}" data-slot="${i}" type="button" title="Color slot ${i + 1}">
+      <span class="swatch"></span><span>${COLOR_SLOT_NAMES[i]}</span>
+    </button>`).join('');
+  ui.colorSlots.addEventListener('click', e => {
+    const btn = e.target.closest('[data-slot]');
+    if (!btn) return;
+    state.selectedSlot = Number(btn.dataset.slot);
+    renderColor();
+  });
+}
+function renderQuickColorsStatic() {
+  ui.quickColors.innerHTML = QUICK_COLORS.map(c =>
+    `<button class="quick-color" type="button" data-color="${c}" style="background:${c}" title="${c}"></button>`
+  ).join('') + `<button class="quick-color random" type="button" data-random="1" title="Random color"><svg class="icon" aria-hidden="true"><use href="#i-dice"/></svg></button>`;
+  ui.quickColors.addEventListener('click', e => {
+    const btn = e.target.closest('.quick-color');
+    if (!btn) return;
+    if (btn.dataset.random) {
+      const c = hsvToRgb(Math.random() * 360, 72 + Math.random() * 28, 100);
+      applyColor(c.r, c.g, c.b, 0, { send: true });
+    } else {
+      const c = hexToRgb(btn.dataset.color);
+      if (c) applyColor(c.r, c.g, c.b, c.w, { send: true });
+    }
+  });
+}
+function renderSegmentSelectors() {
+  const opts = state.segments.map(s => `<option value="${s.id}">${escapeHtml(s.name || 'Segment ' + (s.id + 1))}${s.on ? '' : ' (off)'}</option>`).join('');
+  for (const sel of [ui.colorSegSelect, ui.effectSegSelect]) {
+    if (!sel) continue;
+    sel.innerHTML = opts;
+    sel.value = String(activeSegment().id);
+  }
+  renderPaletteList();
+}
+function renderEffectList() {
+  const query = (ui.effectSearch.value || '').trim().toLowerCase();
+  const scroll = ui.effectList.scrollTop;
+  let visible = 0;
+  const frag = document.createDocumentFragment();
+  effectCatalog.forEach((name, id) => {
+    if (!name || name === 'RSVD' || name === '-') return;
+    if (query && !name.toLowerCase().includes(query)) return;
+    visible++;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'effect-row' + (id === activeSegment().fx ? ' active' : '');
+    b.dataset.fx = id;
+    b.innerHTML = `<span class="effect-id">${String(id).padStart(2, '0')}</span><span class="effect-name">${escapeHtml(name)}</span><span class="effect-check"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>`;
+    frag.appendChild(b);
+  });
+  if (!visible) frag.appendChild(Object.assign(document.createElement('div'), { className: 'empty-list', textContent: 'No effects match your search.' }));
+  ui.effectList.replaceChildren(frag);
+  ui.effectList.scrollTop = scroll;
+  ui.effectCount.textContent = `${visible} effects`;
+  ui.effectIdInput.value = activeSegment().fx;
+}
+function renderPaletteList() {
+  const query = ((ui.paletteSearch && ui.paletteSearch.value) || '').trim().toLowerCase();
+  const scroll = ui.paletteList.scrollTop;
+  let visible = 0;
+  const frag = document.createDocumentFragment();
+  paletteCatalog.forEach((name, id) => {
+    if (!name) return;
+    if (query && !name.toLowerCase().includes(query)) return;
+    visible++;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'palette-row' + (id === activeSegment().pal ? ' active' : '');
+    b.dataset.pal = id;
+    b.innerHTML = `<span class="palette-swatch" style="background:${paletteGradient(id)}"></span><span class="palette-name">${escapeHtml(name)}</span><span class="palette-check"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>`;
+    b.title = name;
+    frag.appendChild(b);
+  });
+  if (!visible) frag.appendChild(Object.assign(document.createElement('div'), { className: 'empty-list', textContent: 'No palettes match your search.' }));
+  ui.paletteList.replaceChildren(frag);
+  ui.paletteList.scrollTop = scroll;
+  ui.paletteCount.textContent = `${visible} palettes`;
+}
+function renderEffectSelection() {
+  const seg = activeSegment();
+  $$('.effect-row', ui.effectList).forEach(row => row.classList.toggle('active', Number(row.dataset.fx) === seg.fx));
+  for (const sel of [ui.colorSegSelect, ui.effectSegSelect]) if (sel) sel.value = String(seg.id);
+}
+function renderPaletteSelection() {
+  const seg = activeSegment();
+  $$('.palette-row', ui.paletteList).forEach(row => row.classList.toggle('active', Number(row.dataset.pal) === seg.pal));
+}
+function renderEffectCurrent() {
+  const seg = activeSegment();
+  const name = effectName(seg.fx);
+  ui.currentEffectName.textContent = name;
+  ui.effectIdBadge.textContent = 'ID ' + seg.fx;
+  ui.effectIdInput.value = seg.fx;
+  setElRange('speedSlider', seg.sx ?? 128);
+  setElRange('intensitySlider', seg.ix ?? 128);
+  ui.speedValue.textContent = seg.sx ?? 128;
+  ui.intensityValue.textContent = seg.ix ?? 128;
+  ui.freezeBtn.classList.toggle('active', !!seg.frz);
+  ui.effectPreview.style.background = effectGradient(seg);
+  ui.currentEffectName.title = name;
+  ui.effectPalettePreview.style.background = paletteGradient(seg.pal);
+  ui.effectPaletteName.textContent = paletteName(seg.pal);
+  ui.effectPaletteHint.textContent = 'ID ' + seg.pal;
+  updateSegmentSummary(seg.id);
+  renderStateTiles();
+  renderEffectSelection();
+  renderPaletteSelection();
+}
+function renderBrightnessAll() { renderBrightness(); }
+
+/* ------------------------------------------------------------------ *
+ *  State changes                                                      *
+ * ------------------------------------------------------------------ */
+function applyColor(r, g, b, w, opts = {}) {
+  const seg = activeSegment();
+  const slot = clamp(state.selectedSlot, 0, 2);
+  const c = [clamp(Math.round(r), 0, 255), clamp(Math.round(g), 0, 255), clamp(Math.round(b), 0, 255), clamp(Math.round(w ?? (seg.colors?.[slot]?.[3] || 0)), 0, 255)];
+  if (!Array.isArray(seg.colors)) seg.colors = [[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+  seg.colors[slot] = c;
+  const hsv = rgbToHsv(c[0], c[1], c[2]);
+  state.hsv = { h: hsv.s > 0.1 ? hsv.h : state.hsv.h, s: hsv.s };
+  renderColor();
+  renderEffectCurrent();
+  if (opts.send !== false) {
+    queueJSON('color', { seg: [{ id: seg.id, col: seg.colors.map(x => x.map(n => Math.round(n))) }] });
+  }
+}
+function applyBrightness(value, opts = {}) {
+  const b = clamp(Math.round(value), 1, 255);
+  state.brightness = b;
+  if (state.on === false) { state.on = true; renderPower(); }
+  renderBrightness();
+  if (opts.send !== false) queueJSON('brightness', { on: true, bri: b });
+}
+function applyEffect(id, opts = {}) {
+  const seg = activeSegment();
+  seg.fx = clamp(Number(id) || 0, 0, 254);
+  renderEffectCurrent();
+  if (opts.send !== false) sendJSON({ seg: [{ id: seg.id, fx: seg.fx }] }, { verbose: true, label: 'effect' });
+}
+function applyPalette(id, opts = {}) {
+  const seg = activeSegment();
+  seg.pal = clamp(Number(id) || 0, 0, 255);
+  renderPaletteSelection();
+  renderEffectCurrent();
+  if (opts.send !== false) sendJSON({ seg: [{ id: seg.id, pal: seg.pal }] }, { verbose: true, label: 'palette' });
+}
+function markActiveSegmentCards() {
+  if (!ui.segmentsGrid) return;
+  $$('.segment-card', ui.segmentsGrid).forEach(card => {
+    card.classList.toggle('active', Number(card.dataset.segId) === activeSegment().id);
+  });
+}
+function updateSegmentSummary(id) {
+  if (!ui.segmentsGrid) return;
+  const seg = state.segments.find(s => s.id === id);
+  const card = ui.segmentsGrid.querySelector(`[data-seg-id="${id}"]`);
+  if (!seg || !card) return;
+  const c = seg.colors?.[0] || [0,0,0,0];
+  const sw = card.querySelector('.seg-swatch');
+  if (sw) sw.style.background = rgbToHex(c[0], c[1], c[2]);
+  const sub = card.querySelector('.seg-sub');
+  if (sub) sub.textContent = `${seg.start}–${seg.stop} · ${Math.max(0, seg.stop - seg.start)} LEDs`;
+  const fxLabel = card.querySelector('[data-role="effect"] span');
+  if (fxLabel) fxLabel.textContent = effectName(seg.fx);
+  const palLabel = card.querySelector('[data-role="palette"] span');
+  if (palLabel) palLabel.textContent = paletteName(seg.pal);
+  const bri = card.querySelector('[data-field="bri"]');
+  if (bri && document.activeElement !== bri) {
+    bri.value = seg.bri ?? 255;
+    setRange(bri, seg.bri ?? 255);
+    const out = card.querySelector('[data-role="bri-out"]');
+    if (out) out.textContent = seg.bri ?? 255;
+  }
+  card.classList.toggle('active', seg.id === activeSegment().id);
+  const on = card.querySelector('[data-field="on"]');
+  if (on) on.checked = !!seg.on;
+  card.style.opacity = seg.on === false ? '.72' : '';
+}
+function renderSegments() {
+  const active = document.activeElement;
+  if (active && ui.segmentsGrid.contains(active) && active.matches('input,select,textarea')) {
+    markActiveSegmentCards();
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  const max = maxSegments();
+  state.segments.forEach(seg => {
+    const c = seg.colors?.[0] || [0,0,0,0];
+    const article = document.createElement('article');
+    article.className = 'segment-card' + (seg.id === activeSegment().id ? ' active' : '');
+    article.dataset.segId = seg.id;
+    article.style.opacity = seg.on === false ? '.72' : '';
+    article.innerHTML = `
+      <div class="seg-top">
+        <span class="seg-swatch" style="background:${rgbToHex(c[0], c[1], c[2])}"></span>
+        <div class="seg-title-wrap">
+          <input class="seg-name-input" data-field="name" maxlength="24" value="${escapeHtml(seg.name || 'Segment ' + (seg.id + 1))}" aria-label="Segment name">
+          <span class="seg-sub">${seg.start}–${seg.stop} · ${Math.max(0, seg.stop - seg.start)} LEDs</span>
+        </div>
+        <label class="switch" title="Segment power">
+          <input type="checkbox" data-field="on" ${seg.on ? 'checked' : ''} aria-label="Segment power">
+          <span class="track"></span>
+        </label>
+      </div>
+      <div class="seg-summary">
+        <span class="seg-pill" data-role="effect"><svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg><span>${escapeHtml(effectName(seg.fx))}</span></span>
+        <span class="seg-pill" data-role="palette"><svg class="icon" aria-hidden="true"><use href="#i-palette"/></svg><span>${escapeHtml(paletteName(seg.pal))}</span></span>
+      </div>
+      <div class="seg-fields">
+        <div class="seg-field"><label>Start LED</label><input data-field="start" type="number" min="0" max="${totalLeds() - 1}" value="${seg.start}"></div>
+        <div class="seg-field"><label>Stop LED</label><input data-field="stop" type="number" min="1" max="${totalLeds()}" value="${seg.stop}"></div>
+      </div>
+      <div class="seg-bri">
+        <label>Brightness</label>
+        <div class="range-wrap fill"><input class="range" data-field="bri" type="range" min="0" max="255" value="${seg.bri ?? 255}"></div>
+        <output data-role="bri-out">${seg.bri ?? 255}</output>
+      </div>
+      <div class="seg-actions">
+        <button class="btn" data-action="colors" type="button"><svg class="icon" aria-hidden="true"><use href="#i-palette"/></svg> Colors</button>
+        <button class="btn" data-action="effects" type="button"><svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg> Effects</button>
+        <button class="icon-btn${seg.rev ? ' active' : ''}" data-action="reverse" type="button" title="Reverse segment" aria-label="Reverse segment" aria-pressed="${seg.rev ? 'true' : 'false'}"><svg class="icon" aria-hidden="true"><use href="#i-reverse"/></svg></button>
+        <button class="icon-btn danger" data-action="delete" type="button" title="Delete segment" aria-label="Delete segment"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>
+      </div>
+      <details class="seg-details">
+        <summary>Advanced</summary>
+        <div class="seg-more-grid">
+          <div class="seg-field"><label>Grouping</label><input data-field="grp" type="number" min="1" max="255" value="${seg.grp ?? 1}"></div>
+          <div class="seg-field"><label>Spacing</label><input data-field="spc" type="number" min="0" max="255" value="${seg.spc ?? 0}"></div>
+        </div>
+      </details>`;
+    const bri = $('[data-field="bri"]', article);
+    if (bri) setRange(bri, seg.bri ?? 255);
+    frag.appendChild(article);
+  });
+  ui.segmentsGrid.replaceChildren(frag);
+  ui.addSegmentBtn.disabled = state.segments.length >= max;
+  ui.addSegmentBtn.title = state.segments.length >= max ? `Maximum of ${max} segments` : 'Add a segment';
+  ui.addSegmentBtn.style.opacity = state.segments.length >= max ? '.55' : '';
+}
+function addSegment() {
+  if (state.segments.length >= maxSegments()) {
+    showToast(`This build supports ${maxSegments()} segments.`, 'warn');
+    return;
+  }
+  const seg = activeSegment();
+  const nextId = Math.max(...state.segments.map(s => s.id), -1) + 1;
+  const count = state.segments.length;
+  let start = 0, stop = totalLeds();
+  if (seg.stop - seg.start >= 2) {
+    const mid = Math.floor((seg.start + seg.stop) / 2);
+    start = mid; stop = seg.stop;
+    seg.stop = mid; seg.len = mid - seg.start;
+    queueJSON('seg-edit', { seg: [{ id: seg.id, start: seg.start, stop: seg.stop }] });
+  } else {
+    const maxStop = Math.max(...state.segments.map(s => s.stop), 0);
+    start = Math.min(maxStop, totalLeds() - 1);
+    stop = totalLeds();
+  }
+  const newSeg = {
+    ...deepClone(seg), id: nextId, name: 'Segment ' + (count + 1), start, stop, len: stop - start,
+    sel: true, colors: seg.colors.map(c => c.slice()), frz: false
+  };
+  if (state.mode === 'serial') {
+    const cmd = { seg: [{ id: nextId, start, stop, name: newSeg.name, col: newSeg.colors, fx: newSeg.fx, pal: newSeg.pal, sx: newSeg.sx, ix: newSeg.ix, on: true }] };
+    sendJSON(cmd, { verbose: true, label: 'add segment' });
+  }
+  state.segments.push(newSeg);
+  state.activeSegmentId = nextId;
+  renderSegments();
+  renderSegmentSelectors();
+  renderColor();
+  renderEffectCurrent();
+  showToast(`Segment ${count + 1} added.`);
+}
+function deleteSegment(id) {
+  if (state.segments.length <= 1) {
+    showToast('At least one segment is required.', 'warn');
+    return;
+  }
+  const seg = state.segments.find(s => s.id === id);
+  if (!seg) return;
+  confirmAction({
+    title: `Delete ${seg.name || 'segment'}?`,
+    message: 'The LED range will be released. This sends stop:0 to the device.',
+    okLabel: 'Delete segment',
+    danger: true,
+    onConfirm: () => {
+      sendJSON({ seg: [{ id: seg.id, stop: 0 }] }, { label: 'delete segment' });
+      state.segments = state.segments.filter(s => s.id !== id);
+      if (state.activeSegmentId === id) state.activeSegmentId = state.segments[0]?.id ?? 0;
+      renderSegments();
+      renderSegmentSelectors();
+      renderColor();
+      renderEffectCurrent();
+      showToast('Segment deleted.');
+    }
+  });
+}
+function resetSegments() {
+  confirmAction({
+    title: 'Reset all segments?',
+    message: 'WLED will replace the current zones with one full-strip segment.',
+    okLabel: 'Reset segments',
+    danger: false,
+    onConfirm: () => {
+      sendJSON({ rSeg: true }, { verbose: true, label: 'reset segments' });
+      const c = activeColor();
+      state.segments = [{
+        id: 0, name: 'Segment 1', start: 0, stop: totalLeds(), len: totalLeds(), on: true, bri: 255,
+        colors: [[c.r, c.g, c.b, c.w],[0,0,0,0],[0,0,0,0]], fx: activeSegment().fx, sx: 128, ix: 128, pal: 0,
+        rev: false, sel: true, grp: 1, spc: 0, frz: false
+      }];
+      state.activeSegmentId = 0;
+      state.selectedSlot = 0;
+      renderSegments();
+      renderSegmentSelectors();
+      renderColor();
+      renderEffectCurrent();
+      showToast('Segments reset.');
+    }
+  });
+}
+function configureFourSegments() {
+  const total = totalLeds();
+  const names = ['Right', 'Top', 'Left', 'Bottom'];
+  const ranges = [[0, 14], [14, 35], [35, 49], [49, 61]];
+  const message = total === 61
+    ? 'Create four segments for the 61-LED ambilight frame: right 0-13, top 14-34, left 35-48, bottom 49-60. Existing segments will be replaced.'
+    : `Your strip currently reports ${total} LEDs, not 61. Set LED count to 61 in WLED LED Preferences first, or the ranges may be rejected.`;
+  confirmAction({
+    title: 'Configure 4-segment layout?',
+    message,
+    okLabel: 'Configure',
+    danger: false,
+    onConfirm: () => {
+      if (state.mode === 'serial') {
+        sendJSON({ rSeg: true }, { label: 'reset segments' });
+        setTimeout(() => {
+          sendJSON({ seg: ranges.map((r, i) => ({ id: i, start: r[0], stop: r[1], n: names[i] })) }, { verbose: true, label: 'configure 4 segments' });
+        }, 250);
+      }
+      const c = activeColor();
+      state.segments = ranges.map((r, i) => ({
+        id: i, name: `Segment ${i + 1}`, start: r[0], stop: r[1], len: r[1] - r[0], on: true, bri: 255,
+        colors: [[c.r, c.g, c.b, c.w],[0,0,0,0],[0,0,0,0]], fx: activeSegment().fx, sx: 128, ix: 128, pal: 0,
+        rev: false, sel: i === 0, grp: 1, spc: 0, frz: false
+      }));
+      state.activeSegmentId = 0;
+      state.selectedSlot = 0;
+      renderSegments();
+      renderSegmentSelectors();
+      renderColor();
+      renderEffectCurrent();
+      showToast(state.mode === 'serial' ? '4-segment layout sent to WLED.' : 'Preview: 4-segment layout applied.');
+    }
+  });
+}
+function renderPresets() {
+  if (!ui.presetsGrid) return;
+  const frag = document.createDocumentFragment();
+  for (let id = 1; id <= PRESET_SLOTS; id++) {
+    const meta = presetStore.meta[id];
+    const card = document.createElement('div');
+    card.className = 'preset-card' + (meta ? '' : ' empty') + (state.currentPreset === id ? ' playing' : '');
+    card.dataset.slot = id;
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-label', meta ? `Apply preset ${meta.name}` : `Save to empty preset slot ${id}`);
+    if (meta) {
+      card.innerHTML = `
+        <div class="preset-top"><span class="preset-slot">${String(id).padStart(2, '0')}</span>
+          ${state.currentPreset === id ? '<span class="preset-status"><span class="state-dot on"></span>Playing</span>' : ''}
+        </div>
+        <span class="preset-name">${escapeHtml(meta.name || presetName(id))}</span>
+        <span class="preset-meta">${escapeHtml(effectName(meta.effect ?? 0))} · ${escapeHtml(paletteName(meta.palette ?? 0))}</span>
+        <span class="preset-strip" style="background:${meta.palette ? paletteGradient(meta.palette) : `linear-gradient(90deg,${rgbToHex((meta.rgb||[255,160,0])[0], (meta.rgb||[255,160,0])[1], (meta.rgb||[255,160,0])[2])},${rgbToHex((meta.rgb||[255,160,0])[0], (meta.rgb||[255,160,0])[1], (meta.rgb||[255,160,0])[2])})`}"></span>
+        <div class="preset-hover-actions">
+          <button class="icon-btn" data-action="overwrite" type="button" title="Overwrite with current state" aria-label="Overwrite preset"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
+          <button class="icon-btn" data-action="delete" type="button" title="Delete preset" aria-label="Delete preset"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>
+        </div>`;
+    } else {
+      card.innerHTML = `<div class="preset-top"><span class="preset-slot">${String(id).padStart(2, '0')}</span></div>
+        <div class="preset-add-through"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span>Save here</span></div>`;
+    }
+    frag.appendChild(card);
+  }
+  ui.presetsGrid.replaceChildren(frag);
+}
+function applyPreset(id) {
+  const meta = presetStore.meta[id];
+  state.currentPreset = id;
+  if (state.mode === 'preview') {
+    const snap = presetStore.snapshots[id];
+    if (snap) restoreSnapshot(snap);
+    showToast(meta ? `Preview: ${meta.name}` : `Preview: preset ${id}`);
+  } else {
+    sendJSON({ ps: id }, { verbose: true, label: 'preset ' + id });
+    showToast(`Applying ${meta?.name || 'preset ' + id}…`);
+  }
+  renderPresets();
+  renderColor();
+  renderEffectCurrent();
+  renderSegmentSelectors();
+  renderSegments();
+}
+function snapshotState() {
+  return {
+    on: state.on,
+    brightness: state.brightness,
+    transition: state.transition,
+    nightlight: deepClone(state.nightlight),
+    segments: deepClone(state.segments),
+    activeSegmentId: state.activeSegmentId,
+    selectedSlot: state.selectedSlot
+  };
+}
+function restoreSnapshot(snap) {
+  if (!snap) return;
+  if (typeof snap.on === 'boolean') state.on = snap.on;
+  if (Number.isFinite(snap.brightness)) state.brightness = snap.brightness;
+  if (Number.isFinite(snap.transition)) state.transition = snap.transition;
+  if (snap.nightlight) state.nightlight = deepClone(snap.nightlight);
+  if (Array.isArray(snap.segments) && snap.segments.length) state.segments = deepClone(snap.segments);
+  if (Number.isFinite(snap.activeSegmentId)) state.activeSegmentId = snap.activeSegmentId;
+  if (Number.isFinite(snap.selectedSlot)) state.selectedSlot = snap.selectedSlot;
+  renderPower(); renderBrightness(); renderColor(); renderEffectCurrent(); renderSegmentSelectors(); renderSegments(); renderTransition();
+}
+function openPresetDialog(slot) {
+  presetDialogSlot = clamp(Number(slot) || 1, 1, PRESET_SLOTS);
+  const select = ui.presetSlotSelect;
+  select.innerHTML = Array.from({ length: PRESET_SLOTS }, (_, i) => i + 1)
+    .map(i => `<option value="${i}">${String(i).padStart(2, '0')} — ${escapeHtml(presetName(i))}</option>`).join('');
+  select.value = String(presetDialogSlot);
+  ui.presetNameInput.value = presetStore.meta[presetDialogSlot]?.name || effectName(activeSegment().fx);
+  updatePresetOverwriteNote();
+  ui.presetDialog.showModal();
+  setTimeout(() => ui.presetNameInput.select(), 30);
+}
+function updatePresetOverwriteNote() {
+  ui.presetOverwriteNote.style.display = presetStore.meta[presetDialogSlot] ? 'flex' : 'none';
+}
+function savePresetFromDialog() {
+  const id = clamp(Number(ui.presetSlotSelect.value) || 1, 1, PRESET_SLOTS);
+  const name = (ui.presetNameInput.value || '').trim() || effectName(activeSegment().fx) || `Preset ${id}`;
+  const seg = activeSegment();
+  const c = activeColor();
+  presetStore.meta[id] = {
+    name, effect: seg.fx, palette: seg.pal, rgb: [c.r, c.g, c.b], savedAt: Date.now()
+  };
+  presetStore.snapshots[id] = snapshotState();
+  saveJSON(PRESET_STORE_KEY, presetStore);
+  state.currentPreset = id;
+  if (state.mode === 'serial') {
+    sendJSON({ psave: id, n: name, ib: true, sb: true }, { verbose: true, label: `save preset ${id}` });
+  }
+  ui.presetDialog.close();
+  renderPresets();
+  showToast(`Saved “${name}” to slot ${id}.`);
+}
+function deletePreset(id) {
+  confirmAction({
+    title: `Delete preset ${id}?`,
+    message: presetStore.meta[id] ? `“${presetStore.meta[id].name}” will be removed.` : 'The preset slot will be erased on the device.',
+    okLabel: 'Delete preset',
+    danger: true,
+    onConfirm: () => {
+      delete presetStore.meta[id];
+      delete presetStore.snapshots[id];
+      saveJSON(PRESET_STORE_KEY, presetStore);
+      if (state.currentPreset === id) state.currentPreset = -1;
+      if (state.mode === 'serial') sendJSON({ pdel: id }, { label: 'delete preset' });
+      renderPresets();
+      showToast('Preset deleted.');
+    }
+  });
+}
+function kvRow(k, v, cls = '') {
+  return `<div class="kv-row"><span class="k">${escapeHtml(k)}</span><span class="v ${cls}">${escapeHtml(String(v))}</span></div>`;
+}
+function renderInfo() {
+  if (!ui.connKv) return;
+  const info = getInfo();
+  const leds = getLedInfo();
+  const serialMode = state.mode === 'serial';
+  renderConnection();
+  ui.connKv.innerHTML = [
+    kvRow('Mode', serialMode ? 'Web Serial' : 'Preview', serialMode ? 'good' : 'warn'),
+    kvRow('Port', state.portLabel || '—'),
+    kvRow('Baud rate', prefs.baud + ' bps'),
+    kvRow('Terminator', prefs.lineEnding === 'lf' ? 'LF' : prefs.lineEnding === 'crlf' ? 'CRLF' : 'None'),
+    kvRow('Received', formatBytes(state.serialStats.rx)),
+    kvRow('Sent', formatBytes(state.serialStats.tx)),
+    kvRow('Last reply', timeAgo(state.lastRxAt))
+  ].join('');
+  ui.deviceKv.innerHTML = [
+    kvRow('Name', info.name || 'WLED'),
+    kvRow('Firmware', (info.ver || '?') + (info.vid ? ' · ' + info.vid : '')),
+    kvRow('Architecture', info.arch || '—'),
+    kvRow('Core', info.core || '—'),
+    kvRow('LED count', leds.count != null ? leds.count : '—'),
+    kvRow('Max segments', leds.maxseg != null ? leds.maxseg : '—'),
+    kvRow('Color', leds.rgbw ? 'RGBW' : (leds.lc & 4 ? 'CCT' : 'RGB')),
+    kvRow('Uptime', info.uptime != null ? formatUptime(info.uptime) : '—'),
+    kvRow('MAC', info.mac || '—')
+  ].join('');
+  ui.powerKv.innerHTML = [
+    kvRow('Current draw', leds.pwr != null ? `${leds.pwr} mA` : '—'),
+    kvRow('Power budget', leds.maxpwr != null ? `${leds.maxpwr} mA` : '—'),
+    kvRow('Frame rate', leds.fps != null ? `${leds.fps} fps` : '—'),
+    kvRow('Free heap', info.freeheap != null ? formatBytes(info.freeheap) : '—'),
+    kvRow('Build ID', info.vid || '—')
+  ].join('');
+  ui.deviceHint.textContent = state.infoIsDemo ? 'sample data' : 'from device';
+  ui.rawResponse.textContent = state.lastResponse
+    ? JSON.stringify(state.lastResponse, null, 2)
+    : (state.lastResponseText || 'No response yet. Connect a device and send {"v":true} to read state and info.');
+  renderConnection();
+}
+function renderTransition() {
+  const t = clamp(Number(state.transition) || 0, 0, 65.5);
+  setElRange('transitionSlider', t);
+  ui.transitionValue.textContent = t.toFixed(1) + ' s';
+}
+function renderNightlight() {
+  ui.timerBtn.classList.toggle('active', !!state.nightlight.on);
+  if (ui.nlEnabled) ui.nlEnabled.checked = !!state.nightlight.on;
+  if (ui.nlDuration) {
+    setElRange('nlDuration', state.nightlight.dur || 60);
+    ui.nlDurationValue.textContent = (state.nightlight.dur || 60) + ' min';
+    $$('.chip', ui.nlChips).forEach(c => c.classList.toggle('active', Number(c.dataset.dur) === Number(state.nightlight.dur)));
+  }
+  if (ui.nlMode) ui.nlMode.value = String(state.nightlight.mode ?? 1);
+  if (ui.nlTarget) ui.nlTarget.value = state.nightlight.tbri ?? 0;
+}
+function switchTab(tab) {
+  if (!['colors','effects','segments','presets','info'].includes(tab)) tab = 'colors';
+  state.activeTab = tab;
+  $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
+  $$('.tabbtn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  try { history.replaceState(null, '', '#' + tab); } catch { /* file URL may reject */ }
+  if (tab === 'presets') renderPresets();
+  if (tab === 'info') renderInfo();
+  if (tab === 'segments') renderSegments();
+  if (tab === 'effects') { renderEffectList(); renderEffectCurrent(); }
+  if (tab === 'colors') { renderPaletteList(); renderColor(); }
+  window.scrollTo({ top: 0, behavior: 'auto' });
+}
+
+/* ------------------------------------------------------------------ *
+ *  Serial bridge                                                      *
+ * ------------------------------------------------------------------ */
+const txQueue = [];
+let txPumping = false;
+let statsRenderTimer = null;
+
+function lineEndingValue() {
+  return prefs.lineEnding === 'crlf' ? '\r\n' : prefs.lineEnding === 'lf' ? '\n' : '';
+}
+function serialSupported() { return typeof navigator !== 'undefined' && 'serial' in navigator; }
+function getPortLabel(port) {
+  try {
+    const info = port.getInfo ? port.getInfo() : {};
+    if (info && (info.usbVendorId || info.usbProductId)) {
+      const v = (info.usbVendorId || 0).toString(16).toUpperCase().padStart(4, '0');
+      const p = (info.usbProductId || 0).toString(16).toUpperCase().padStart(4, '0');
+      return `USB ${v}:${p}`;
+    }
+  } catch { /* unsupported */ }
+  return 'USB serial port';
+}
+function scheduleStatsRender() {
+  if (statsRenderTimer) return;
+  statsRenderTimer = setTimeout(() => {
+    statsRenderTimer = null;
+    if (state.activeTab === 'info') renderInfo();
+    renderConnection();
+  }, 300);
+}
+function logLine(dir, text, label = '') {
+  if (!ui.terminalLog) return;
+  const nearBottom = ui.terminalLog.scrollHeight - ui.terminalLog.scrollTop - ui.terminalLog.clientHeight < 60;
+  const line = document.createElement('div');
+  line.className = 'log-line ' + dir;
+  const dirEl = document.createElement('span');
+  dirEl.className = 'dir';
+  dirEl.textContent = dir.toUpperCase();
+  const txt = document.createElement('span');
+  txt.className = 'txt';
+  const out = String(text);
+  txt.textContent = out.length > 5000 ? out.slice(0, 5000) + '…' : out;
+  line.append(dirEl, txt);
+  if (label) line.title = label;
+  ui.terminalLog.appendChild(line);
+  while (ui.terminalLog.children.length > 300) ui.terminalLog.firstElementChild.remove();
+  if (nearBottom) ui.terminalLog.scrollTop = ui.terminalLog.scrollHeight;
+}
+function showToast(message, type = 'success', duration = 3000) {
+  clearTimeout(toastTimer);
+  ui.toastText.textContent = message;
+  ui.toast.classList.remove('show', 'error', 'warn');
+  if (type === 'error') ui.toast.classList.add('error');
+  if (type === 'warn') ui.toast.classList.add('warn');
+  ui.toast.classList.add('show');
+  const icon = ui.toast.querySelector('use');
+  if (icon) icon.setAttribute('href', type === 'error' ? '#i-alert' : type === 'warn' ? '#i-alert' : '#i-check');
+  toastTimer = setTimeout(() => ui.toast.classList.remove('show'), duration);
+}
+function sendRawText(text) {
+  if (state.mode !== 'serial' || !serial.port) {
+    logLine('tx', text, 'preview');
+    return;
+  }
+  txQueue.push(text + lineEndingValue());
+  pumpTx();
+}
+async function pumpTx() {
+  if (txPumping) return;
+  txPumping = true;
+  try {
+    while (txQueue.length && state.mode === 'serial' && serial.port) {
+      const text = txQueue.shift();
+      try {
+        if (!serial.writer) serial.writer = serial.port.writable.getWriter();
+        const bytes = new TextEncoder().encode(text);
+        await serial.writer.write(bytes);
+        state.serialStats.tx += bytes.byteLength;
+        state.lastTxAt = Date.now();
+        logLine('tx', text.replace(/\r?\n$/, ''), 'serial');
+        scheduleStatsRender();
+        await sleep(16);
+      } catch (err) {
+        logLine('err', 'Write failed: ' + (err.message || err));
+        showToast('Serial write failed. The device may have disconnected.', 'error', 5000);
+        break;
+      }
+    }
+  } finally {
+    txPumping = false;
+    if (txQueue.length && state.mode === 'serial') setTimeout(pumpTx, 30);
+  }
+}
+function sendJSON(obj, opts = {}) {
+  const payload = { ...obj };
+  if (opts.verbose) payload.v = true;
+  let text;
+  try { text = JSON.stringify(payload); }
+  catch (err) { logLine('err', 'Could not encode JSON: ' + err.message); return; }
+  lastInteraction = Date.now();
+  sendRawText(text);
+}
+function queueJSON(channel, obj, opts = {}) {
+  pendingChannels.set(channel, { obj, opts });
+  if (channelFlushTimer) return;
+  channelFlushTimer = setTimeout(() => {
+    channelFlushTimer = null;
+    const entries = Array.from(pendingChannels.values());
+    pendingChannels.clear();
+    for (const entry of entries) sendJSON(entry.obj, entry.opts);
+  }, 85);
+}
+function flushChannels() {
+  if (channelFlushTimer) { clearTimeout(channelFlushTimer); channelFlushTimer = null; }
+  const entries = Array.from(pendingChannels.values());
+  pendingChannels.clear();
+  for (const entry of entries) sendJSON(entry.obj, entry.opts);
+}
+async function connectSerial() {
+  if (state.mode === 'serial') { showToast('A serial port is already open.'); return; }
+  if (!serialSupported()) {
+    showToast('Web Serial is not available in this browser.', 'error', 5000);
+    if (ui.settingsDialog && !ui.settingsDialog.open) ui.settingsDialog.showModal();
+    return;
+  }
+  let port;
+  try {
+    port = await navigator.serial.requestPort();
+  } catch (err) {
+    if (err && err.name === 'NotFoundError') return;
+    showToast('Could not select a serial port: ' + (err.message || err), 'error', 5000);
+    return;
+  }
+  try {
+    await openPort(port);
+  } catch (err) {
+    showToast('Could not open the port: ' + (err.message || err), 'error', 6000);
+    logLine('err', 'Open failed: ' + (err.message || err));
+    serial.keepReading = false;
+    serial.port = null;
+    state.portLabel = '';
+    try { if (port) await port.close(); } catch { /* ignore */ }
+    state.mode = 'preview';
+    state.connected = false;
+    renderConnection();
+    renderInfo();
+  }
+}
+async function openPort(port) {
+  serial.port = port;
+  state.portLabel = getPortLabel(port);
+  state.mode = 'serial';
+  state.connected = true;
+  state.handshake = false;
+  state.serialStats = { tx: 0, rx: 0 };
+  serial.rxBuffer = '';
+  serial.decoder = new TextDecoder();
+  serial.keepReading = true;
+  txQueue.length = 0;
+  clearTimeout(serial.handshakeTimer);
+  renderConnection();
+  renderInfo();
+  logLine('sys', `Opening ${state.portLabel} at ${prefs.baud} baud…`);
+  await port.open({
+    baudRate: Number(prefs.baud) || 115200,
+    dataBits: 8,
+    stopBits: 1,
+    parity: 'none',
+    flowControl: 'none',
+    bufferSize: 4096
+  });
+  serial.waitingForReply = true;
+  serial.readLoop = readSerialPort(port);
+  beginHandshake();
+  showToast('USB port open. Waiting for WLED…', 'warn', 3500);
+}
+function beginHandshake() {
+  clearTimeout(serial.handshakeTimer);
+  serial.handshakeAttempts = 0;
+  const attempt = () => {
+    if (state.mode !== 'serial') return;
+    if (state.handshake) return;
+    serial.handshakeAttempts++;
+    logLine('sys', `Requesting state (attempt ${serial.handshakeAttempts})…`);
+    sendJSON({ v: true }, { label: 'handshake' });
+    if (serial.handshakeAttempts < 3) {
+      serial.handshakeTimer = setTimeout(attempt, 2600);
+    } else {
+      serial.handshakeTimer = setTimeout(() => {
+        if (state.mode === 'serial' && !state.handshake) {
+          showToast('Port open, but WLED did not reply. Check that GPIO3 is free and serial JSON is enabled.', 'warn', 6500);
+          logLine('err', 'No JSON response. WLED needs serial RX/TX available and a JSON-capable firmware.');
+          renderConnection();
+        }
+      }, 2600);
+    }
+  };
+  serial.handshakeTimer = setTimeout(attempt, 700);
+}
+async function readSerialPort(port) {
+  while (port.readable && serial.keepReading) {
+    const reader = port.readable.getReader();
+    serial.reader = reader;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value && value.byteLength) {
+          state.serialStats.rx += value.byteLength;
+          state.lastRxAt = Date.now();
+          const text = serial.decoder.decode(value, { stream: true });
+          if (text) {
+            serial.rxBuffer += text;
+            parseRxBuffer();
+          }
+          scheduleStatsRender();
+        }
+      }
+    } catch (err) {
+      if (serial.keepReading && err && err.name !== 'NetworkError') {
+        logLine('err', 'Read failed: ' + (err.message || err));
+      }
+    } finally {
+      try { reader.releaseLock(); } catch { /* ignore */ }
+      serial.reader = null;
+    }
+  }
+  if (serial.keepReading) handleSerialLoss();
+}
+function handleSerialLoss() {
+  if (state.mode !== 'serial') return;
+  serial.keepReading = false;
+  state.mode = 'preview';
+  state.connected = false;
+  state.handshake = false;
+  clearTimeout(serial.handshakeTimer);
+  state.portLabel = '';
+  try { if (serial.writer) serial.writer.releaseLock(); } catch { /* ignore */ }
+  serial.writer = null;
+  const port = serial.port;
+  serial.port = null;
+  if (port) { port.close().catch(() => { /* already gone */ }); }
+  renderConnection();
+  renderInfo();
+  logLine('sys', 'Serial connection lost.');
+  showToast('USB device disconnected. Switched to preview.', 'warn', 4500);
+}
+async function disconnectSerial(silent = false) {
+  if (state.mode !== 'serial') return;
+  serial.keepReading = false;
+  clearTimeout(serial.handshakeTimer);
+  try { if (serial.reader) await serial.reader.cancel(); } catch { /* ignore */ }
+  try { if (serial.writer) serial.writer.releaseLock(); } catch { /* ignore */ }
+  serial.writer = null;
+  const port = serial.port;
+  serial.port = null;
+  state.mode = 'preview';
+  state.connected = false;
+  state.handshake = false;
+  state.portLabel = '';
+  if (port) { try { await port.close(); } catch { /* ignore */ } }
+  renderConnection();
+  renderInfo();
+  logLine('sys', 'Serial port closed.');
+  if (!silent) showToast('Disconnected.');
+}
+function parseRxBuffer() {
+  let guard = 0;
+  while (serial.rxBuffer.length && guard++ < 50) {
+    const start = serial.rxBuffer.search(/[{[]/);
+    if (start < 0) {
+      const noise = serial.rxBuffer.trim();
+      if (noise) logLine('sys', noise);
+      serial.rxBuffer = '';
+      break;
+    }
+    if (start > 0) {
+      const noise = serial.rxBuffer.slice(0, start).trim();
+      if (noise) logLine('sys', noise);
+      serial.rxBuffer = serial.rxBuffer.slice(start);
+    }
+    const end = findJsonEnd(serial.rxBuffer);
+    if (end < 0) {
+      if (serial.rxBuffer.length > 250000) serial.rxBuffer = serial.rxBuffer.slice(-4096);
+      break;
+    }
+    const candidate = serial.rxBuffer.slice(0, end + 1);
+    serial.rxBuffer = serial.rxBuffer.slice(end + 1);
+    try {
+      const data = JSON.parse(candidate);
+      handleParsedJSON(data, candidate);
+    } catch (err) {
+      logLine('err', 'Bad JSON: ' + candidate.slice(0, 300));
+    }
+  }
+  if (serial.rxBuffer.length > 400000) serial.rxBuffer = serial.rxBuffer.slice(-8192);
+}
+function findJsonEnd(text) {
+  let depth = 0, inString = false, escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') {
+      depth--;
+      if (depth === 0) return i;
+      if (depth < 0) return -1;
+    }
+  }
+  return -1;
+}
+function markHandshake() {
+  if (state.handshake) return;
+  state.handshake = true;
+  state.infoIsDemo = false;
+  serial.waitingForReply = false;
+  clearTimeout(serial.handshakeTimer);
+  renderConnection();
+  renderInfo();
+  const info = getInfo();
+  showToast(`Connected to ${info.name || 'WLED'}${info.ver ? ' · v' + info.ver : ''}.`, 'success', 3500);
+}
+function handleParsedJSON(data, raw) {
+  logLine('rx', raw.length > 2000 ? raw.slice(0, 2000) + '…' : raw, 'serial response');
+  if (Array.isArray(data)) {
+    if (data.length && data.every(v => typeof v === 'number')) {
+      logLine('sys', `LED frame data received (${data.length} pixels).`);
+    }
+    return;
+  }
+  if (!isObj(data)) return;
+  state.lastResponse = data;
+  state.lastResponseText = raw;
+  if (data.error != null) {
+    showToast('WLED error: ' + data.error, 'error', 5000);
+    logLine('err', 'Device error: ' + data.error);
+  }
+  if (data.success === true) logLine('sys', 'Device reported success.');
+  if (Array.isArray(data.effects) && data.effects.every(x => typeof x === 'string')) {
+    effectCatalog = data.effects.slice(0, 255);
+    savePrefs();
+    renderEffectList();
+    renderEffectCurrent();
+  }
+  if (Array.isArray(data.palettes) && data.palettes.every(x => typeof x === 'string')) {
+    paletteCatalog = data.palettes.slice(0, 256);
+    savePrefs();
+    renderPaletteList();
+    renderEffectCurrent();
+  }
+  if (isObj(data.info)) {
+    state.info = data.info;
+    state.infoIsDemo = false;
+    markHandshake();
+  }
+  if (isObj(data.state)) {
+    applyDeviceState(data.state);
+    markHandshake();
+  }
+  renderInfo();
+  if (state.activeTab === 'presets') renderPresets();
+}
+function parseColorValue(v) {
+  if (Array.isArray(v)) {
+    const out = [0,0,0,0];
+    for (let i = 0; i < 4; i++) out[i] = clamp(Math.round(Number(v[i]) || 0), 0, 255);
+    return out;
+  }
+  if (typeof v === 'string') {
+    const c = hexToRgb(v);
+    if (c) return [c.r, c.g, c.b, c.w];
+  }
+  if (typeof v === 'number') {
+    return [v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >> 24) & 255];
+  }
+  return [0,0,0,0];
+}
+function applyDeviceState(st) {
+  if (typeof st.on === 'boolean') state.on = st.on;
+  if (st.bri != null) state.brightness = clamp(Number(st.bri) || 0, 0, 255) || state.brightness;
+  if (st.transition != null) state.transition = clamp((Number(st.transition) || 0) / 10, 0, 65.5);
+  if (st.ps != null) state.currentPreset = Number(st.ps);
+  if (isObj(st.nl)) {
+    state.nightlight = {
+      on: !!st.nl.on,
+      dur: st.nl.dur != null ? Number(st.nl.dur) : state.nightlight.dur,
+      mode: st.nl.mode != null ? Number(st.nl.mode) : state.nightlight.mode,
+      tbri: st.nl.tbri != null ? Number(st.nl.tbri) : state.nightlight.tbri,
+      rem: st.nl.rem != null ? Number(st.nl.rem) : -1
+    };
+  }
+  if (Array.isArray(st.seg)) {
+    const authoritativeIds = st.seg.map((s, i) => s && s.id != null ? Number(s.id) : i);
+    st.seg.forEach((s, index) => {
+      if (!isObj(s)) return;
+      const id = s.id != null ? Number(s.id) : index;
+      let seg = state.segments.find(x => x.id === id);
+      if (!seg) {
+        seg = {
+          id, name: `Segment ${id + 1}`, start: 0, stop: totalLeds(), len: totalLeds(), on: true, bri: 255,
+          colors: [[255,160,0,0],[0,0,0,0],[0,0,0,0]], fx: 0, sx: 128, ix: 128, pal: 0,
+          rev: false, sel: false, grp: 1, spc: 0, frz: false
+        };
+        state.segments.push(seg);
+      }
+      if (s.n != null) seg.name = String(s.n);
+      if (s.start != null) seg.start = Number(s.start);
+      if (s.stop != null) seg.stop = Number(s.stop);
+      if (s.len != null) seg.len = Number(s.len);
+      else seg.len = Math.max(0, seg.stop - seg.start);
+      if (typeof s.on === 'boolean') seg.on = s.on;
+      if (s.bri != null) seg.bri = Number(s.bri);
+      if (s.fx != null) seg.fx = Number(s.fx);
+      if (s.sx != null) seg.sx = Number(s.sx);
+      if (s.ix != null) seg.ix = Number(s.ix);
+      if (s.pal != null) seg.pal = Number(s.pal);
+      if (s.cct != null) seg.cct = Number(s.cct);
+      if (typeof s.rev === 'boolean') seg.rev = s.rev;
+      if (typeof s.sel === 'boolean') seg.sel = s.sel;
+      if (s.grp != null) seg.grp = Number(s.grp);
+      if (s.spc != null) seg.spc = Number(s.spc);
+      if (typeof s.frz === 'boolean') seg.frz = s.frz;
+      if (Array.isArray(s.col)) {
+        const cols = [[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+        s.col.slice(0, 3).forEach((c, idx) => { cols[idx] = parseColorValue(c); });
+        seg.colors = cols;
+      }
+    });
+    const keep = new Set(authoritativeIds);
+    if (keep.size) state.segments = state.segments.filter(s => keep.has(s.id));
+    if (!state.segments.some(s => s.id === state.activeSegmentId)) {
+      const selected = state.segments.find(s => s.sel);
+      state.activeSegmentId = (selected || state.segments[0] || { id: 0 }).id;
+    }
+    state.selectedSlot = clamp(state.selectedSlot, 0, 2);
+  }
+  renderPower();
+  renderBrightness();
+  renderTransition();
+  renderNightlight();
+  renderSegmentSelectors();
+  renderSegments();
+  renderColor();
+  renderEffectCurrent();
+  renderEffectSelection();
+  renderPaletteSelection();
+  renderStateTiles();
+  renderPresets();
+  renderInfo();
+}
+function savePrefs() {
+  prefs.effects = effectCatalog;
+  prefs.palettes = paletteCatalog;
+  saveJSON(EFFECT_STORE_KEY, prefs);
+}
+
+function renderAll() {
+  renderConnection();
+  renderPower();
+  renderBrightness();
+  renderSegmentSelectors();
+  renderSegments();
+  renderColor();
+  renderEffectList();
+  renderEffectCurrent();
+  renderPaletteList();
+  renderTransition();
+  renderNightlight();
+  renderPresets();
+  renderStateTiles();
+  renderInfo();
+  if (ui.effectsCatalogInput) ui.effectsCatalogInput.value = JSON.stringify(effectCatalog);
+  if (ui.palettesCatalogInput) ui.palettesCatalogInput.value = JSON.stringify(paletteCatalog);
+}
+function setActiveSegment(id) {
+  if (!state.segments.some(s => s.id === Number(id))) return;
+  flushChannels();
+  state.activeSegmentId = Number(id);
+  state.selectedSlot = 0;
+  renderSegments();
+  renderSegmentSelectors();
+  renderColor();
+  renderEffectCurrent();
+}
+function togglePower() {
+  flushChannels();
+  state.on = !state.on;
+  renderPower();
+  sendJSON({ on: state.on }, { label: 'power' });
+  if (state.mode === 'preview') showToast(state.on ? 'Preview: light on' : 'Preview: light off');
+}
+function openSettings() {
+  if (!ui.settingsDialog) return;
+  renderConnection();
+  ui.baudSelect.value = String(prefs.baud);
+  ui.lineEndingSelect.value = prefs.lineEnding;
+  ui.autoSyncToggle.checked = !!prefs.autoSync;
+  if (!serialSupported()) {
+    ui.browserSupportNote.className = 'callout';
+    ui.browserSupportNote.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span>Web Serial is not available in this browser. Use Chrome, Edge or Opera on desktop and serve the file from HTTPS or localhost.</span>';
+    ui.connectBtn.disabled = true;
+    ui.connectBtn.style.opacity = '.5';
+  } else {
+    ui.browserSupportNote.className = 'callout info';
+    ui.browserSupportNote.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span>Web Serial works in Chromium-based desktop browsers over HTTPS or localhost. Close any other serial monitor before connecting.</span>';
+    ui.connectBtn.disabled = false;
+    ui.connectBtn.style.opacity = '';
+  }
+  if (!ui.settingsDialog.open) ui.settingsDialog.showModal();
+}
+function confirmAction({ title, message, okLabel = 'Confirm', danger = false, onConfirm }) {
+  confirmCallback = onConfirm || null;
+  ui.confirmTitle.textContent = title;
+  ui.confirmSub.textContent = danger ? 'This action cannot be undone.' : 'Please confirm.';
+  ui.confirmMessage.textContent = message || '';
+  ui.confirmOkBtn.textContent = okLabel;
+  ui.confirmOkBtn.classList.toggle('btn-danger', !!danger);
+  ui.confirmOkBtn.classList.toggle('btn-primary', !danger);
+  ui.confirmDialog.showModal();
+}
+function openTerminal() {
+  state.terminalOpen = true;
+  ui.terminal.classList.add('open');
+  ui.terminal.setAttribute('aria-hidden', 'false');
+  if (!ui.terminalLog.children.length) {
+    logLine('sys', 'WLED Web Serial console ready. Commands are sent as raw JSON text.');
+    logLine('sys', serialSupported() ? 'Web Serial API detected.' : 'Web Serial API unavailable in this browser.');
+  }
+  setTimeout(() => ui.terminalInput.focus(), 80);
+}
+function closeTerminal() {
+  state.terminalOpen = false;
+  ui.terminal.classList.remove('open');
+  ui.terminal.setAttribute('aria-hidden', 'true');
+}
+function copyText(text, message = 'Copied to clipboard.') {
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showToast(message); } catch { showToast('Could not copy.', 'error'); }
+    ta.remove();
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => showToast(message)).catch(fallback);
+  } else fallback();
+}
+function applyCatalog(kind) {
+  const isEffects = kind === 'effects';
+  const textarea = isEffects ? ui.effectsCatalogInput : ui.palettesCatalogInput;
+  let parsed;
+  try { parsed = JSON.parse(textarea.value); }
+  catch { showToast('Catalog must be valid JSON.', 'error'); return; }
+  if (!Array.isArray(parsed) || !parsed.every(v => typeof v === 'string')) {
+    showToast('Catalog must be a JSON array of strings.', 'error'); return;
+  }
+  if (!parsed.length) { showToast('Catalog is empty.', 'error'); return; }
+  if (isEffects) {
+    effectCatalog = parsed.slice(0, 255);
+    renderEffectList();
+    renderEffectCurrent();
+  } else {
+    paletteCatalog = parsed.slice(0, 256);
+    renderPaletteList();
+    renderEffectCurrent();
+  }
+  savePrefs();
+  textarea.value = JSON.stringify(isEffects ? effectCatalog : paletteCatalog);
+  showToast(`${isEffects ? 'Effect' : 'Palette'} catalog updated.`);
+}
+
+
+
+
+
+/* ------------------------------------------------------------------ *
+ *  UI helpers                                                         *
+ * ------------------------------------------------------------------ */
+const EXAMPLE_COMMAND = '{"seg":[{"id":0,"col":[[255,160,0,0]]}],"v":true}';
+
+function cacheEls() {
+  $$('[id]').forEach(el => {
+    if (el.namespaceURI === 'http://www.w3.org/2000/svg') return;
+    ui[el.id] = el;
+  });
+}
+function openTimerDialog() {
+  renderNightlight();
+  if (!ui.timerDialog.open) ui.timerDialog.showModal();
+}
+function applyNightlight() {
+  const on = !!ui.nlEnabled.checked;
+  const dur = clamp(Math.round(Number(ui.nlDuration.value) || 60), 1, 240);
+  const mode = clamp(Math.round(Number(ui.nlMode.value) || 0), 0, 4);
+  const tbri = clamp(Math.round(Number(ui.nlTarget.value) || 0), 0, 255);
+  flushChannels();
+  state.nightlight = { on, dur, mode, tbri, rem: on ? dur * 60 : -1 };
+  sendJSON({ nl: on ? { on: true, dur, mode, tbri } : { on: false } }, { label: 'nightlight' });
+  renderNightlight();
+  ui.timerDialog.close();
+  showToast(on ? `Nightlight set for ${dur} minutes.` : 'Nightlight disabled.');
+}
+function resetCatalog(kind) {
+  const isEffects = kind === 'effects';
+  if (isEffects) {
+    effectCatalog = DEFAULT_EFFECTS.slice();
+    ui.effectsCatalogInput.value = JSON.stringify(effectCatalog);
+    renderEffectList();
+    renderEffectCurrent();
+  } else {
+    paletteCatalog = DEFAULT_PALETTES.slice();
+    ui.palettesCatalogInput.value = JSON.stringify(paletteCatalog);
+    renderPaletteList();
+    renderEffectCurrent();
+  }
+  savePrefs();
+  showToast(`Default ${isEffects ? 'effect' : 'palette'} catalog restored.`);
+}
+function requestState() {
+  lastUserActivity = Date.now();
+  if (state.mode === 'serial') {
+    sendJSON({ v: true }, { label: 'state refresh' });
+    showToast('State requested from WLED.');
+  } else {
+    renderAll();
+    showToast('Preview state refreshed.');
+  }
+}
+function firstEmptyPresetSlot() {
+  for (let id = 1; id <= PRESET_SLOTS; id++) {
+    if (!presetStore.meta[id]) return id;
+  }
+  return 1;
+}
+function applyHexInput() {
+  const c = hexToRgb(ui.hexInput.value);
+  if (!c) {
+    showToast('Enter a 6- or 8-digit hex color.', 'error');
+    ui.hexInput.focus();
+    ui.hexInput.select();
+    return;
+  }
+  applyColor(c.r, c.g, c.b, c.w, { send: true });
+}
+function applyHsvColor(h, s) {
+  const sat = clamp(s, 0, 100);
+  const hue = ((h % 360) + 360) % 360;
+  state.hsv = { h: hue, s: sat };
+  const rgb = hsvToRgb(hue, sat, 100);
+  applyColor(rgb.r, rgb.g, rgb.b, activeColor().w, { send: true });
+}
+function updateFromWheel(e) {
+  const rect = ui.colorWheel.getBoundingClientRect();
+  const radius = rect.width / 2;
+  if (!radius) return;
+  const dx = e.clientX - (rect.left + radius);
+  const dy = e.clientY - (rect.top + radius);
+  const dist = Math.min(Math.hypot(dx, dy), radius);
+  const hue = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+  const sat = clamp((dist / radius) * 100, 0, 100);
+  applyHsvColor(hue, sat);
+}
+function presetCardAction(card) {
+  if (!card) return;
+  const id = Number(card.dataset.slot);
+  if (presetStore.meta[id]) applyPreset(id);
+  else openPresetDialog(id);
+}
+
+/* ------------------------------------------------------------------ *
+ *  Event bindings                                                     *
+ * ------------------------------------------------------------------ */
+function bindEvents() {
+  ui.connChip.addEventListener('click', openSettings);
+  ui.settingsBtn.addEventListener('click', openSettings);
+  ui.connectNowBtn.addEventListener('click', connectSerial);
+  ui.powerBtn.addEventListener('click', togglePower);
+  ui.timerBtn.addEventListener('click', openTimerDialog);
+  ui.consoleBtn.addEventListener('click', openTerminal);
+  ui.topInfoBtn.addEventListener('click', () => switchTab('info'));
+
+  ui.topBrightness.addEventListener('input', e => applyBrightness(Number(e.target.value)));
+
+  /* color wheel */
+  ui.colorWheel.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    lastUserActivity = Date.now();
+    try { ui.colorWheel.focus({ preventScroll: true }); } catch { /* ignore */ }
+    wheelDragging = true;
+    ui.colorWheel.classList.add('dragging');
+    try { ui.colorWheel.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    updateFromWheel(e);
+  });
+  ui.colorWheel.addEventListener('pointermove', e => {
+    if (!wheelDragging) return;
+    lastUserActivity = Date.now();
+    updateFromWheel(e);
+  });
+  const endWheelDrag = e => {
+    if (!wheelDragging) return;
+    wheelDragging = false;
+    ui.colorWheel.classList.remove('dragging');
+    try { ui.colorWheel.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+  ui.colorWheel.addEventListener('pointerup', endWheelDrag);
+  ui.colorWheel.addEventListener('pointercancel', endWheelDrag);
+  ui.colorWheel.addEventListener('keydown', e => {
+    const step = e.shiftKey ? 1 : 4;
+    let h = state.hsv.h || 0;
+    let s = state.hsv.s || 0;
+    if (e.key === 'ArrowLeft') h -= step;
+    else if (e.key === 'ArrowRight') h += step;
+    else if (e.key === 'ArrowUp') s += step;
+    else if (e.key === 'ArrowDown') s -= step;
+    else return;
+    e.preventDefault();
+    applyHsvColor(h, s);
+  });
+
+  /* color inputs */
+  ui.hueSlider.addEventListener('input', () => {
+    applyHsvColor(Number(ui.hueSlider.value), state.hsv.s || 100);
+  });
+  ui.satSlider.addEventListener('input', () => {
+    applyHsvColor(state.hsv.h || 0, Number(ui.satSlider.value));
+  });
+  ui.kelvinSlider.addEventListener('input', () => {
+    const seg = activeSegment();
+    const cct = clamp(Math.round(Number(ui.kelvinSlider.value) || 4000), 1900, 10091);
+    seg.cct = cct;
+    setRange(ui.kelvinSlider, cct);
+    ui.kelvinValue.textContent = cct + ' K';
+    queueJSON('cct-' + seg.id, { seg: [{ id: seg.id, cct }] });
+  });
+  const applyRgbSliders = () => {
+    const r = Number(ui.redSlider.value);
+    const g = Number(ui.greenSlider.value);
+    const b = Number(ui.blueSlider.value);
+    const w = Number(ui.whiteSlider.value);
+    applyColor(r, g, b, w, { send: true });
+  };
+  [ui.redSlider, ui.greenSlider, ui.blueSlider, ui.whiteSlider].forEach(slider => {
+    slider.addEventListener('input', applyRgbSliders);
+  });
+  ui.hexApplyBtn.addEventListener('click', applyHexInput);
+  ui.hexInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); applyHexInput(); }
+  });
+
+  /* palettes */
+  ui.paletteSearch.addEventListener('input', renderPaletteList);
+  ui.paletteList.addEventListener('click', e => {
+    const row = e.target.closest('.palette-row');
+    if (row) applyPalette(Number(row.dataset.pal));
+  });
+
+  /* effects */
+  ui.effectSearch.addEventListener('input', renderEffectList);
+  ui.effectList.addEventListener('click', e => {
+    const row = e.target.closest('.effect-row');
+    if (row) applyEffect(Number(row.dataset.fx));
+  });
+  ui.speedSlider.addEventListener('input', () => {
+    const seg = activeSegment();
+    const value = Number(ui.speedSlider.value);
+    seg.sx = value;
+    setRange(ui.speedSlider, value);
+    ui.speedValue.textContent = value;
+    queueJSON('speed-' + seg.id, { seg: [{ id: seg.id, sx: value }] });
+  });
+  ui.intensitySlider.addEventListener('input', () => {
+    const seg = activeSegment();
+    const value = Number(ui.intensitySlider.value);
+    seg.ix = value;
+    setRange(ui.intensitySlider, value);
+    ui.intensityValue.textContent = value;
+    queueJSON('intensity-' + seg.id, { seg: [{ id: seg.id, ix: value }] });
+  });
+  ui.freezeBtn.addEventListener('click', () => {
+    const seg = activeSegment();
+    seg.frz = !seg.frz;
+    sendJSON({ seg: [{ id: seg.id, frz: seg.frz }] }, { label: 'freeze' });
+    renderEffectCurrent();
+  });
+  ui.randomEffectBtn.addEventListener('click', () => {
+    const valid = effectCatalog.map((name, id) => ({ name, id }))
+      .filter(row => row.name && row.name !== 'RSVD' && row.name !== '-');
+    if (!valid.length) return;
+    const row = valid[Math.floor(Math.random() * valid.length)];
+    applyEffect(row.id);
+    showToast(`Effect: ${row.name}`);
+  });
+  ui.paletteJumpBtn.addEventListener('click', () => {
+    switchTab('colors');
+    setTimeout(() => ui.paletteList.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+  });
+  const setEffectId = () => applyEffect(clamp(Math.round(Number(ui.effectIdInput.value) || 0), 0, 254));
+  ui.setEffectIdBtn.addEventListener('click', setEffectId);
+  ui.effectIdInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); setEffectId(); }
+  });
+
+  /* segment selectors */
+  for (const sel of [ui.colorSegSelect, ui.effectSegSelect]) {
+    sel.addEventListener('change', () => setActiveSegment(Number(sel.value)));
+  }
+  ui.addSegmentBtn.addEventListener('click', addSegment);
+  ui.resetSegmentsBtn.addEventListener('click', resetSegments);
+  ui.configureSegmentsBtn.addEventListener('click', configureFourSegments);
+
+  /* segment cards */
+  ui.segmentsGrid.addEventListener('focusin', e => {
+    const card = e.target.closest('.segment-card');
+    if (!card) return;
+    const id = Number(card.dataset.segId);
+    if (id !== state.activeSegmentId) setActiveSegment(id);
+  });
+  ui.segmentsGrid.addEventListener('input', e => {
+    const target = e.target;
+    if (!target.matches('[data-field]')) return;
+    const card = target.closest('.segment-card');
+    if (!card) return;
+    const id = Number(card.dataset.segId);
+    const seg = state.segments.find(s => s.id === id);
+    if (!seg) return;
+    if (target.dataset.field === 'bri') {
+      const value = clamp(Math.round(Number(target.value) || 0), 0, 255);
+      seg.bri = value;
+      setRange(target, value);
+      const out = card.querySelector('[data-role="bri-out"]');
+      if (out) out.textContent = value;
+      queueJSON('seg-bri-' + id, { seg: [{ id, bri: value }] });
+    }
+  });
+  ui.segmentsGrid.addEventListener('change', e => {
+    const target = e.target;
+    if (!target.matches('[data-field]')) return;
+    const card = target.closest('.segment-card');
+    if (!card) return;
+    const id = Number(card.dataset.segId);
+    const seg = state.segments.find(s => s.id === id);
+    if (!seg) return;
+    const field = target.dataset.field;
+    if (field === 'on') {
+      seg.on = !!target.checked;
+      card.style.opacity = seg.on === false ? '.72' : '';
+      sendJSON({ seg: [{ id, on: seg.on }] }, { label: 'segment power' });
+    } else if (field === 'name') {
+      const name = (target.value || '').trim() || `Segment ${id + 1}`;
+      target.value = name;
+      seg.name = name;
+      sendJSON({ seg: [{ id, n: name }] }, { label: 'segment name' });
+      renderSegmentSelectors();
+    } else if (field === 'start' || field === 'stop') {
+      const startInput = card.querySelector('[data-field="start"]');
+      const stopInput = card.querySelector('[data-field="stop"]');
+      let start = clamp(Math.round(Number(startInput.value) || 0), 0, totalLeds() - 1);
+      let stop = clamp(Math.round(Number(stopInput.value) || 0), 1, totalLeds());
+      if (stop <= start) {
+        if (field === 'start') stop = Math.min(totalLeds(), start + 1);
+        else start = Math.max(0, stop - 1);
+      }
+      startInput.value = start;
+      stopInput.value = stop;
+      seg.start = start;
+      seg.stop = stop;
+      seg.len = stop - start;
+      sendJSON({ seg: [{ id, start, stop }] }, { label: 'segment range' });
+      updateSegmentSummary(id);
+      if (state.activeSegmentId === id) renderColor();
+    } else if (field === 'grp' || field === 'spc') {
+      const value = clamp(Math.round(Number(target.value) || 0), field === 'grp' ? 1 : 0, 255);
+      target.value = value;
+      seg[field] = value;
+      queueJSON(`seg-${field}-` + id, { seg: [{ id, [field]: value }] });
+    }
+  });
+  ui.segmentsGrid.addEventListener('click', e => {
+    const card = e.target.closest('.segment-card');
+    if (!card) return;
+    const id = Number(card.dataset.segId);
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if (action === 'delete') { deleteSegment(id); return; }
+    if (action === 'colors' || action === 'effects') {
+      setActiveSegment(id);
+      switchTab(action);
+      return;
+    }
+    if (action === 'reverse') {
+      const seg = state.segments.find(s => s.id === id);
+      if (!seg) return;
+      seg.rev = !seg.rev;
+      sendJSON({ seg: [{ id, rev: seg.rev }] }, { label: 'reverse segment' });
+      renderSegments();
+      return;
+    }
+    if (!e.target.closest('button, input, select, textarea, label, summary, details')) {
+      setActiveSegment(id);
+    }
+  });
+
+  /* global segment settings */
+  ui.transitionSlider.addEventListener('input', () => {
+    const value = clamp(Number(ui.transitionSlider.value) || 0, 0, 65.5);
+    state.transition = value;
+    setRange(ui.transitionSlider, value);
+    ui.transitionValue.textContent = value.toFixed(1) + ' s';
+    queueJSON('transition', { transition: Math.round(value * 10) });
+  });
+
+  /* presets */
+  ui.savePresetBtn.addEventListener('click', () => openPresetDialog(firstEmptyPresetSlot()));
+  ui.presetsGrid.addEventListener('click', e => {
+    const card = e.target.closest('.preset-card');
+    if (!card) return;
+    const id = Number(card.dataset.slot);
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if (action === 'delete') { deletePreset(id); return; }
+    if (action === 'overwrite') { openPresetDialog(id); return; }
+    presetCardAction(card);
+  });
+  ui.presetsGrid.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.target.closest('[data-action]')) return;
+    const card = e.target.closest('.preset-card');
+    if (!card) return;
+    e.preventDefault();
+    presetCardAction(card);
+  });
+  ui.presetSlotSelect.addEventListener('change', () => {
+    presetDialogSlot = clamp(Number(ui.presetSlotSelect.value) || 1, 1, PRESET_SLOTS);
+    ui.presetNameInput.value = presetStore.meta[presetDialogSlot]?.name || effectName(activeSegment().fx);
+    updatePresetOverwriteNote();
+  });
+  ui.presetNameInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); savePresetFromDialog(); }
+  });
+  ui.confirmSavePresetBtn.addEventListener('click', savePresetFromDialog);
+
+  /* info */
+  ui.stateRefreshBtn.addEventListener('click', requestState);
+  ui.infoRefreshBtn.addEventListener('click', requestState);
+  ui.infoConnectBtn.addEventListener('click', connectSerial);
+  ui.infoDisconnectBtn.addEventListener('click', () => disconnectSerial());
+  ui.infoConsoleBtn.addEventListener('click', openTerminal);
+  ui.apiConsoleBtn.addEventListener('click', openTerminal);
+  ui.rebootBtn.addEventListener('click', () => {
+    confirmAction({
+      title: 'Reboot WLED?',
+      message: 'The controller will restart and the serial port will close.',
+      okLabel: 'Reboot',
+      danger: true,
+      onConfirm: () => {
+        flushChannels();
+        sendJSON({ rb: true }, { label: 'reboot' });
+        showToast(state.mode === 'serial' ? 'Reboot command sent.' : 'Preview: reboot requested.', 'warn');
+      }
+    });
+  });
+  ui.copyRawBtn.addEventListener('click', () => {
+    const text = state.lastResponse ? JSON.stringify(state.lastResponse, null, 2) : state.lastResponseText;
+    if (!text) { showToast('No response to copy yet.', 'warn'); return; }
+    copyText(text, 'Response copied.');
+  });
+  ui.copyExampleBtn.addEventListener('click', () => copyText(EXAMPLE_COMMAND, 'Example command copied.'));
+  $$('[data-command]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const command = btn.dataset.command;
+      try { JSON.parse(command); }
+      catch { showToast('Invalid JSON command.', 'error'); return; }
+      sendRawText(command);
+      showToast('Command sent.');
+    });
+  });
+
+  /* settings */
+  ui.baudSelect.addEventListener('change', () => {
+    prefs.baud = Number(ui.baudSelect.value) || 115200;
+    savePrefs();
+    renderInfo();
+    showToast(`Baud rate set to ${prefs.baud}.`);
+  });
+  ui.lineEndingSelect.addEventListener('change', () => {
+    prefs.lineEnding = ui.lineEndingSelect.value;
+    savePrefs();
+    renderInfo();
+    showToast('Command terminator updated.');
+  });
+  ui.autoSyncToggle.addEventListener('change', () => {
+    prefs.autoSync = !!ui.autoSyncToggle.checked;
+    savePrefs();
+    showToast(prefs.autoSync ? 'Live state sync enabled.' : 'Live state sync disabled.');
+  });
+  ui.connectBtn.addEventListener('click', connectSerial);
+  ui.disconnectBtn.addEventListener('click', () => disconnectSerial());
+  ui.applyEffectsCatalog.addEventListener('click', () => applyCatalog('effects'));
+  ui.applyPalettesCatalog.addEventListener('click', () => applyCatalog('palettes'));
+  ui.resetEffectsCatalog.addEventListener('click', () => resetCatalog('effects'));
+  ui.resetPalettesCatalog.addEventListener('click', () => resetCatalog('palettes'));
+
+  /* nightlight */
+  ui.nlEnabled.addEventListener('change', () => {
+    state.nightlight.on = !!ui.nlEnabled.checked;
+    renderNightlight();
+  });
+  ui.nlDuration.addEventListener('input', () => {
+    const dur = clamp(Math.round(Number(ui.nlDuration.value) || 60), 1, 240);
+    setRange(ui.nlDuration, dur);
+    ui.nlDurationValue.textContent = dur + ' min';
+    state.nightlight.dur = dur;
+    $$('.chip', ui.nlChips).forEach(c => c.classList.toggle('active', Number(c.dataset.dur) === dur));
+  });
+  ui.nlChips.addEventListener('click', e => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    const dur = Number(chip.dataset.dur);
+    state.nightlight.dur = dur;
+    setRange(ui.nlDuration, dur);
+    ui.nlDurationValue.textContent = dur + ' min';
+    $$('.chip', ui.nlChips).forEach(c => c.classList.toggle('active', c === chip));
+  });
+  ui.applyTimerBtn.addEventListener('click', applyNightlight);
+
+  /* confirm dialog */
+  ui.confirmOkBtn.addEventListener('click', () => {
+    const callback = confirmCallback;
+    confirmCallback = null;
+    ui.confirmDialog.close();
+    if (callback) {
+      try { callback(); }
+      catch (err) { showToast('Action failed: ' + (err.message || err), 'error', 5000); }
+    }
+  });
+  ui.confirmCancelBtn.addEventListener('click', () => {
+    confirmCallback = null;
+    ui.confirmDialog.close();
+  });
+  ui.confirmDialog.addEventListener('close', () => { confirmCallback = null; });
+
+  /* dialog close buttons and backdrop */
+  $$('dialog [data-close]').forEach(btn => {
+    btn.addEventListener('click', () => btn.closest('dialog')?.close());
+  });
+  $$('dialog').forEach(dialog => {
+    dialog.addEventListener('click', e => {
+      if (e.target === dialog) dialog.close();
+    });
+  });
+
+  /* terminal */
+  ui.terminalClose.addEventListener('click', closeTerminal);
+  ui.terminalClear.addEventListener('click', () => {
+    ui.terminalLog.replaceChildren();
+    logLine('sys', 'Console cleared.');
+  });
+  ui.terminalRefresh.addEventListener('click', requestState);
+  ui.terminalForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const text = ui.terminalInput.value.trim();
+    if (!text) return;
+    lastUserActivity = Date.now();
+    sendRawText(text);
+    ui.terminalInput.value = '';
+    ui.terminalInput.focus();
+  });
+
+  /* navigation */
+  $$('.tabbtn').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+  window.addEventListener('hashchange', () => {
+    const tab = (location.hash || '').replace(/^#/, '');
+    if (['colors', 'effects', 'segments', 'presets', 'info'].includes(tab)) switchTab(tab);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && state.terminalOpen && !document.querySelector('dialog[open]')) {
+      closeTerminal();
+    }
+  });
+  ['pointerdown', 'keydown', 'input'].forEach(type => {
+    document.addEventListener(type, () => { lastUserActivity = Date.now(); }, { capture: true, passive: true });
+  });
+
+  if (serialSupported()) {
+    navigator.serial.addEventListener('disconnect', e => {
+      if (!serial.port) return;
+      const gone = e.port || (e.target && e.target !== navigator.serial ? e.target : null);
+      if (!gone || gone === serial.port) handleSerialLoss();
+    });
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Boot                                                               *
+ * ------------------------------------------------------------------ */
+function startAutoSync() {
+  clearInterval(serial.syncTimer);
+  serial.syncTimer = setInterval(() => {
+    if (state.mode !== 'serial' || !state.handshake || !prefs.autoSync) return;
+    if (document.hidden || state.terminalOpen) return;
+    if (Date.now() - lastUserActivity < 4000) return;
+    if (txPumping || txQueue.length || channelFlushTimer) return;
+    sendJSON({ v: true }, { label: 'auto sync' });
+  }, 8000);
+}
+function init() {
+  cacheEls();
+  renderColorSlotsStatic();
+  renderQuickColorsStatic();
+  bindEvents();
+  renderAll();
+  const initial = (location.hash || '').replace(/^#/, '');
+  switchTab(['colors', 'effects', 'segments', 'presets', 'info'].includes(initial) ? initial : 'colors');
+  startAutoSync();
+  if (!serialSupported()) {
+    ui.connectNowBtn.disabled = true;
+    ui.connectNowBtn.title = 'Web Serial is unavailable in this browser';
+    ui.connectNowBtn.style.opacity = '.55';
+  }
+  setTimeout(() => document.getElementById('bootLoader')?.classList.add('hidden'), 450);
+}
+
+try {
+  init();
+} catch (err) {
+  console.error('WLED Web Serial failed to initialize:', err);
+  const toast = document.getElementById('toast');
+  const text = document.getElementById('toastText');
+  if (toast && text) {
+    text.textContent = 'UI failed to initialize: ' + (err.message || err);
+    toast.classList.add('show', 'error');
+  }
+  const loaderText = document.querySelector('.boot-text');
+  if (loaderText) loaderText.textContent = 'Initialization failed. See console.';
+}
+})();
+</script>
+</body>
+</html>
