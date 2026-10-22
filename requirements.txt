@@ -1,0 +1,5 @@
+mss==10.2.0
+numpy==2.5.4
+pyserial==3.5
+Pillow==13.0.0
+dbus-fast==5.2.0; sys_platform == "linux"
