@@ -22,6 +22,11 @@ maximum, and the tracked bounds then follow every new extreme
 (current < min -> min = current, current > max -> max = current). The level is
 the current value normalised into that window.
 
+Each strip starts with a random color and cross-fades to a new random color
+every --color-interval seconds (20 by default) over --color-fade seconds
+(2 by default). Pass explicit --bass-color/--treble-color/--amp-color values
+to set the starting colors, or --color-interval 0 to keep them static.
+
 Audio is captured from the system's playback (loopback), so whatever the
 computer plays drives the LEDs, other system sounds included. The capture
 backend is chosen for the platform:
@@ -43,7 +48,9 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import colorsys
 import json
+import random
 import shutil
 import subprocess
 import sys
@@ -70,9 +77,8 @@ IS_MACOS = sys.platform == "darwin"
 # ---------------------------------------------------------------------------
 DEFAULT_BASS_RANGE = (20.0, 250.0)
 DEFAULT_TREBLE_RANGE = (2000.0, 20000.0)
-DEFAULT_BASS_COLOR = (255, 80, 0)
-DEFAULT_TREBLE_COLOR = (0, 180, 255)
-DEFAULT_AMP_COLOR = (255, 255, 255)
+DEFAULT_COLOR_INTERVAL = 20.0
+DEFAULT_COLOR_FADE = 2.0
 
 # Dry-run fallback ranges, from the ambilight layout.
 DRY_RUN_SEGMENTS = {
@@ -667,6 +673,60 @@ def scale_color(
     )  # type: ignore[return-value]
 
 
+def random_color() -> tuple[int, int, int]:
+    """Return a vivid random RGB colour."""
+    r, g, b = colorsys.hsv_to_rgb(random.random(), 0.85, 1.0)
+    return (round(r * 255), round(g * 255), round(b * 255))
+
+
+class ColorCycler:
+    """One strip colour that cross-fades to a new random colour periodically."""
+
+    def __init__(
+        self,
+        initial: tuple[int, int, int],
+        interval: float,
+        fade: float,
+        start: float | None = None,
+    ):
+        self.interval = max(0.0, interval)
+        self.fade = (
+            max(0.0, min(fade, self.interval)) if self.interval > 0 else 0.0
+        )
+        self.current = np.asarray(initial, dtype=np.float32)
+        self._from = self.current.copy()
+        self._to = self.current.copy()
+        self._fade_started = 0.0
+        self._fading = False
+        self._next_change = (
+            start if start is not None else time.perf_counter()
+        ) + self.interval
+
+    def update(self, now: float) -> tuple[int, int, int]:
+        if self.interval <= 0:
+            return tuple(int(round(v)) for v in self.current)  # type: ignore[return-value]
+
+        if now >= self._next_change:
+            self._from = self.current.copy()
+            self._to = np.asarray(random_color(), dtype=np.float32)
+            self._fade_started = now
+            self._fading = True
+            self._next_change = now + self.interval
+
+        if self._fading:
+            if self.fade <= 0:
+                progress = 1.0
+            else:
+                progress = min(
+                    1.0, max(0.0, (now - self._fade_started) / self.fade)
+                )
+            self.current = self._from + (self._to - self._from) * progress
+            if progress >= 1.0:
+                self._fading = False
+
+        return tuple(int(round(v)) for v in self.current)  # type: ignore[return-value]
+
+
 # ---------------------------------------------------------------------------
 # Serial / WLED
 # ---------------------------------------------------------------------------
@@ -922,23 +982,43 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--bass-color",
         type=parse_color,
-        default=DEFAULT_BASS_COLOR,
+        default=None,
         metavar="COLOR",
-        help="Color of the bass bar (RRGGBB or R,G,B)",
+        help=(
+            "Initial color of the bass bar (RRGGBB or R,G,B); defaults to a "
+            "random color"
+        ),
     )
     parser.add_argument(
         "--treble-color",
         type=parse_color,
-        default=DEFAULT_TREBLE_COLOR,
+        default=None,
         metavar="COLOR",
-        help="Color of the treble bar",
+        help="Initial color of the treble bar (default: random)",
     )
     parser.add_argument(
         "--amp-color",
         type=parse_color,
-        default=DEFAULT_AMP_COLOR,
+        default=None,
         metavar="COLOR",
-        help="Color of the amplitude bar on the top strip",
+        help="Initial color of the amplitude bar on the top strip (default: random)",
+    )
+    parser.add_argument(
+        "--color-interval",
+        type=float,
+        default=DEFAULT_COLOR_INTERVAL,
+        metavar="SECONDS",
+        help=(
+            "Seconds between random color changes for each strip; 0 keeps the "
+            "initial colors"
+        ),
+    )
+    parser.add_argument(
+        "--color-fade",
+        type=float,
+        default=DEFAULT_COLOR_FADE,
+        metavar="SECONDS",
+        help="Cross-fade time from the current color to the next random color",
     )
     parser.add_argument(
         "--seg-left",
@@ -1019,6 +1099,10 @@ def run(args: argparse.Namespace) -> int:
         raise ValueError("--fft must be at least 256 samples")
     if args.rate < 8000:
         raise ValueError("--rate must be at least 8000 Hz")
+    if args.color_interval < 0:
+        raise ValueError("--color-interval must not be negative")
+    if args.color_fade < 0:
+        raise ValueError("--color-fade must not be negative")
 
     nyquist = args.rate / 2.0
     for name, (lo, hi) in (
@@ -1123,9 +1207,27 @@ def run(args: argparse.Namespace) -> int:
         freqs = np.fft.rfftfreq(args.fft, 1.0 / args.rate)
         ranges = {"bass": AutoRange(), "treble": AutoRange(), "amp": AutoRange()}
         smoother = Smoother(args.smoothing)
-        bass_color = scale_color(args.bass_color, args.brightness)
-        treble_color = scale_color(args.treble_color, args.brightness)
-        amp_color = scale_color(args.amp_color, args.brightness)
+        color_start = time.perf_counter()
+        cyclers = {
+            "bass": ColorCycler(
+                args.bass_color or random_color(),
+                args.color_interval,
+                args.color_fade,
+                color_start,
+            ),
+            "treble": ColorCycler(
+                args.treble_color or random_color(),
+                args.color_interval,
+                args.color_fade,
+                color_start,
+            ),
+            "amp": ColorCycler(
+                args.amp_color or random_color(),
+                args.color_interval,
+                args.color_fade,
+                color_start,
+            ),
+        }
 
         interval = 1.0 / args.fps
         deadline = time.perf_counter()
@@ -1160,6 +1262,13 @@ def run(args: argparse.Namespace) -> int:
             )
             b, t, a = (float(v) for v in smoother.update(levels))
             last_levels = (b, t, a)
+
+            color_now = time.perf_counter()
+            bass_color = scale_color(cyclers["bass"].update(color_now), args.brightness)
+            treble_color = scale_color(
+                cyclers["treble"].update(color_now), args.brightness
+            )
+            amp_color = scale_color(cyclers["amp"].update(color_now), args.brightness)
 
             left = fill_linear(resolved["left"].count, b, bass_color)
             right = fill_linear(resolved["right"].count, t, treble_color)

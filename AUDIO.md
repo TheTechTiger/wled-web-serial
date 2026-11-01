@@ -14,6 +14,20 @@ by the Web Serial control panel's four-segment layout), or accepts explicit
 `--seg-left` / `--seg-right` / `--seg-top` overrides. If no segments match and
 no overrides were given, the four-segment layout is created on the board.
 
+Each strip starts with a random color and cross-fades to a new random color
+every `--color-interval` seconds (20 by default). Use `--color-fade` to control
+the transition time, explicit `--bass-color` / `--treble-color` / `--amp-color`
+values for the starting colors, or `--color-interval 0` to keep colors static:
+
+```bash
+# Static orange bass, blue treble, white amplitude
+python wled_audio.py --color-interval 0 \
+  --bass-color FF5000 --treble-color 00B4FF --amp-color FFFFFF
+
+# Fast color show: a new color every 5 seconds, 1-second cross-fade
+python wled_audio.py --color-interval 5 --color-fade 1
+```
+
 ## Audio capture by platform
 
 | Platform | Backend | Requirements |
@@ -69,7 +83,9 @@ The serial port can also be forced with `--port COM5` (Windows) or
 | `--device NAME` | Capture device name or id (see `--list-audio`) |
 | `--bass-range LO:HI` | Bass band in Hz (default `20:250`) |
 | `--treble-range LO:HI` | Treble band in Hz (default `2000:20000`) |
-| `--bass-color COLOR`, `--treble-color`, `--amp-color` | Bar colors (RRGGBB or R,G,B) |
+| `--bass-color COLOR`, `--treble-color`, `--amp-color` | Initial bar colors (RRGGBB or R,G,B; default random) |
+| `--color-interval SECONDS` | Time between random color changes (default 20; 0 disables) |
+| `--color-fade SECONDS` | Cross-fade time to the next color (default 2) |
 | `--seg-left`, `--seg-right`, `--seg-top` | Segment as `START:STOP` or `id:N` |
 | `--reverse-right`, `--reverse-top` | Grow those bars from the opposite end |
 | `--brightness FACTOR` | Scale lit colors (default 1.0) |
