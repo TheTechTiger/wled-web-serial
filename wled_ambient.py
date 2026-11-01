@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Screen-edge ambilight for WLED over the USB serial JSON API.
+"""Screen-edge ambilight for WLED over USB serial.
 
 The LED strip is sampled counter-clockwise, starting at the bottom-right:
 
@@ -9,8 +9,9 @@ The LED strip is sampled counter-clockwise, starting at the bottom-right:
     bottom edge  LEDs 49..60  (left -> right, 12)
 
 The script captures the selected screen at up to 20 FPS, averages a strip of
-pixels around each LED position, smooths the result, and sends one JSON frame
-over serial. WLED's serial JSON API is used directly (no HTTP required).
+pixels around each LED position, smooths the result, and sends it to WLED over
+USB serial. The default is WLED's serial JSON API; --protocol adalight uses the
+compact binary realtime protocol for much lower latency.
 """
 
 from __future__ import annotations
@@ -78,6 +79,7 @@ LED_COUNT = sum(edge.count for edge in EDGES)  # 61
 
 # WLED serial baud change command bytes (temporary, until reboot).
 BAUD_COMMANDS = {
+    115200: 0xB0,
     230400: 0xB1,
     460800: 0xB2,
     500000: 0xB3,
@@ -674,13 +676,13 @@ def resolve_capture_mode(requested: str) -> str:
     return "mss"
 
 
-def make_capture(mode: str, monitor_index: int | None, fps: float):
+def make_capture(mode: str, monitor_index: int | None, fps: float, capture_width: int = 640):
     if mode == "mss":
         return MssCapture(monitor_index)
     if mode == "spectacle":
         return SpectacleCapture(monitor_index)
     if mode == "portal":
-        return PortalCapture(fps)
+        return PortalCapture(fps, capture_width)
     raise ValueError(f"Unknown capture backend: {mode}")
 
 
@@ -721,71 +723,189 @@ def print_serial_ports() -> None:
         print(describe_port(port))
 
 
+def decode_json_object(data: bytes) -> dict | None:
+    """Return the first WLED state/info object found in a noisy serial buffer."""
+    text = data.decode("utf-8", "replace")
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text, index)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and ("state" in value or "info" in value):
+            return value
+    return None
+
+
 @dataclass
 class WledSerial:
     port: str
     baudrate: int
     setup_baud: bool = True
+    protocol: str = "json"
 
     def __post_init__(self) -> None:
         self.serial: serial.Serial | None = None
+        self._can_query = False
+        self._effective_baud = self.baudrate
         self._open()
 
-    def _open(self) -> None:
+    def _new_serial(self, baudrate: int) -> serial.Serial:
+        ser = serial.Serial(
+            port=self.port,
+            baudrate=baudrate,
+            timeout=0,
+            write_timeout=1,
+        )
+        # ESP boards use DTR/RTS for their auto-reset circuit. Leaving them
+        # asserted can hold the board in reset or download mode, or make the
+        # host read bootloader noise instead of WLED replies.
         try:
-            ser = serial.Serial(
-                port=self.port,
-                baudrate=115200 if self.setup_baud else self.baudrate,
-                timeout=0,
-                write_timeout=1,
-            )
+            ser.dtr = False
+            ser.rts = False
+        except (serial.SerialException, OSError):
+            pass
+        return ser
+
+    def _open(self) -> None:
+        initial_baud = 115200 if self.setup_baud else self.baudrate
+        try:
+            ser = self._new_serial(initial_baud)
         except serial.SerialException as exc:
             raise RuntimeError(
                 f"Could not open serial port {self.port}: {exc}. "
                 "Close any serial monitor using the port and check permissions."
             ) from exc
         self.serial = ser
+        time.sleep(0.3)
+        self._drain()
 
-        if not self.setup_baud or self.baudrate == 115200:
-            time.sleep(0.15)
-            self._drain()
+        if not self.setup_baud:
+            self._can_query = self._probe_once(0.5)
             self._send_setup()
             return
 
-        command = BAUD_COMMANDS.get(self.baudrate)
-        if command is None:
-            ser.close()
-            supported = ", ".join(str(value) for value in (115200, *BAUD_COMMANDS))
-            raise RuntimeError(f"Unsupported serial baud rate {self.baudrate}; use one of {supported}")
+        target = self.baudrate
+        current: int | None = None
+        # WLED reverts to its configured baud (normally 115200) on every boot,
+        # and a previous run may have left it at 230400/460800. Probe the rates
+        # this script can use instead of trusting the port's initial setting.
+        for candidate in dict.fromkeys((115200, target, 230400, 460800, 921600)):
+            try:
+                ser.baudrate = candidate
+            except (serial.SerialException, ValueError):
+                continue
+            if self._probe_once(0.45):
+                current = candidate
+                break
 
-        # Find WLED at the boot/default baud first. A board that resets when the
-        # serial port opens needs a moment before it can answer.
-        found = self._wait_for_wled(2.0)
-        ser.write(bytes([command]))
-        ser.flush()
-        time.sleep(0.25)
+        if current is None:
+            # Opening the port can reset the board. Give it one more chance at
+            # WLED's normal boot rate after the other probes have elapsed.
+            try:
+                ser.baudrate = 115200
+            except (serial.SerialException, ValueError):
+                pass
+            if self._probe_once(0.5):
+                current = 115200
 
-        # If WLED was already at the requested rate, the command cannot be
-        # parsed at 115200; reopening at the requested rate will then work.
-        try:
-            ser.baudrate = self.baudrate
-        except (serial.SerialException, ValueError):
-            pass
-        time.sleep(0.1)
-        self._drain()
-
-        if found:
-            print(f"WLED found on {self.port}; serial baud {self.baudrate}.", file=sys.stderr)
-        else:
+        if current is None:
+            # A board whose serial TX pin is used for LEDs cannot answer, but
+            # it can still receive commands. Assume it booted at 115200 and
+            # switch it to the requested rate optimistically.
+            try:
+                ser.baudrate = 115200
+            except (serial.SerialException, ValueError):
+                pass
+            if target != 115200:
+                command = BAUD_COMMANDS.get(target)
+                if command is None:
+                    ser.close()
+                    supported = ", ".join(str(value) for value in BAUD_COMMANDS)
+                    raise RuntimeError(
+                        f"Unsupported serial baud rate {target}; use one of {supported}"
+                    )
+                try:
+                    ser.write(bytes([command]))
+                    ser.flush()
+                except serial.SerialException as exc:
+                    raise RuntimeError(f"Serial connection lost: {exc}") from exc
+                time.sleep(0.15)
+                try:
+                    ser.baudrate = target
+                except (serial.SerialException, ValueError):
+                    pass
+            self._effective_baud = target
             print(
-                f"No WLED version reply at 115200. Assuming {self.port} is ready at "
-                f"{self.baudrate} baud.",
+                f"No WLED version reply; assuming {self.port} is ready at "
+                f"{target} baud (serial TX may be disabled).",
                 file=sys.stderr,
             )
-        self._send_setup()
+        else:
+            self._can_query = True
+            self._effective_baud = current
+            if current != target:
+                command = BAUD_COMMANDS.get(target)
+                if command is None:
+                    ser.close()
+                    supported = ", ".join(str(value) for value in BAUD_COMMANDS)
+                    raise RuntimeError(
+                        f"Unsupported serial baud rate {target}; use one of {supported}"
+                    )
+                try:
+                    ser.write(bytes([command]))
+                    ser.flush()
+                except serial.SerialException as exc:
+                    raise RuntimeError(f"Serial connection lost: {exc}") from exc
+                time.sleep(0.15)
+                try:
+                    ser.baudrate = target
+                except (serial.SerialException, ValueError):
+                    pass
+                if self._probe_once(0.45):
+                    self._effective_baud = target
+                else:
+                    # The switch did not take. Go back to the rate that
+                    # answered instead of leaving the host at a dead rate.
+                    try:
+                        ser.baudrate = current
+                    except (serial.SerialException, ValueError):
+                        pass
+                    if self._probe_once(0.45):
+                        self._effective_baud = current
+                        print(
+                            f"WLED did not answer at {target} baud; continuing "
+                            f"at {current} baud.",
+                            file=sys.stderr,
+                        )
+                    else:
+                        # Neither rate answered. The baud command was probably
+                        # received, so stay at the requested rate.
+                        try:
+                            ser.baudrate = target
+                        except (serial.SerialException, ValueError):
+                            pass
+                        self._effective_baud = target
+                        print(
+                            f"Could not verify WLED at {target} baud; continuing "
+                            "anyway.",
+                            file=sys.stderr,
+                        )
+            print(
+                f"WLED found on {self.port}; serial baud {self._effective_baud}.",
+                file=sys.stderr,
+            )
 
-    def _wait_for_wled(self, timeout: float) -> bool:
+        self._drain()
+        self._send_setup()
+        if self._can_query:
+            self._report_wled_info()
+
+    def _probe_once(self, timeout: float) -> bool:
         ser = self._require_serial()
+        self._drain()
         deadline = time.monotonic() + timeout
         reply = bytearray()
         while time.monotonic() < deadline:
@@ -794,38 +914,112 @@ class WledSerial:
                 ser.flush()
             except serial.SerialException:
                 return False
-            time.sleep(0.1)
-            if ser.in_waiting:
-                reply.extend(ser.read(ser.in_waiting))
-            if b"WLED" in reply:
+            time.sleep(0.08)
+            try:
+                waiting = ser.in_waiting
+                if waiting:
+                    reply.extend(ser.read(min(waiting, 4096)))
+            except serial.SerialException:
+                return False
+            # WLED always prints "WLED " followed by its version.
+            if b"WLED " in reply:
                 return True
-            time.sleep(0.1)
         return False
+
+    def query_info(self, timeout: float = 0.9) -> dict | None:
+        """Ask WLED for its state/info JSON and parse it, ignoring serial noise."""
+        ser = self._require_serial()
+        self._drain()
+        try:
+            ser.write(b'{"v":true}\n')
+            ser.flush()
+        except serial.SerialException:
+            return None
+
+        buf = bytearray()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                waiting = ser.in_waiting
+                if waiting:
+                    buf.extend(ser.read(waiting))
+            except serial.SerialException:
+                return None
+            result = decode_json_object(buf)
+            if result is not None:
+                return result
+            if len(buf) > 1_000_000:
+                del buf[:-250_000]
+            time.sleep(0.02)
+        return decode_json_object(buf)
+
+    def _report_wled_info(self) -> None:
+        info = self.query_info()
+        if not info:
+            return
+        info_obj = info.get("info")
+        if not isinstance(info_obj, dict):
+            return
+        version = info_obj.get("ver")
+        leds = info_obj.get("leds")
+        count = leds.get("count") if isinstance(leds, dict) else None
+
+        details = []
+        if version is not None:
+            details.append(f"WLED {version}")
+        if isinstance(count, int):
+            details.append(f"{count} LEDs configured")
+        if details:
+            print("; ".join(details) + ".", file=sys.stderr)
+
+        if isinstance(count, int) and count != LED_COUNT:
+            if count < LED_COUNT:
+                print(
+                    f"Warning: WLED is configured for {count} LEDs, but this "
+                    f"layout needs {LED_COUNT}. Set the LED count to {LED_COUNT} "
+                    "in WLED's Config > LED Preferences. The last "
+                    f"{LED_COUNT - count} LEDs will not update until you do.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Warning: WLED is configured for {count} LEDs, but this "
+                    f"layout only drives the first {LED_COUNT}.",
+                    file=sys.stderr,
+                )
 
     def _drain(self) -> None:
         ser = self.serial
-        if ser is not None and ser.in_waiting:
-            try:
-                ser.read(ser.in_waiting)
-            except serial.SerialException:
-                pass
+        if ser is None:
+            return
+        try:
+            waiting = ser.in_waiting
+            if waiting:
+                ser.read(waiting)
+        except (serial.SerialException, OSError):
+            pass
 
     def _send_setup(self) -> None:
         setup = {
             "on": True,
             "bri": 255,
             "transition": 0,
-            "seg": [
+            "live": False,
+        }
+        if self.protocol == "json":
+            # JSON mode writes per-segment colors, so segment 0 must cover the
+            # whole strip. Adalight writes pixels directly and does not need
+            # this, so it leaves the user's existing segment layout untouched.
+            setup["seg"] = [
                 {
                     "id": 0,
                     "start": 0,
                     "stop": LED_COUNT,
                     "frz": True,
                 }
-            ],
-        }
+            ]
         self.send(json.dumps(setup, separators=(",", ":")) + "\n")
-        time.sleep(0.05)
+        time.sleep(0.02)
 
     def _require_serial(self) -> serial.Serial:
         if self.serial is None:
@@ -843,17 +1037,54 @@ class WledSerial:
             ) from exc
         if written != len(data):
             raise RuntimeError(f"Only wrote {written} of {len(data)} bytes to serial")
+        # Push the frame out of the OS/USB buffers immediately. Without this,
+        # small frames can sit in a CDC buffer and make the LEDs lag behind.
+        ser.flush()
         # WLED may emit a little debug/status text; never let it fill the OS buffer.
         self._drain()
 
     def send_colors(self, colors: np.ndarray) -> None:
+        if self.protocol == "adalight":
+            self._send_adalight(colors)
+            return
         hex_colors = ",".join(
             f'"{int(r):02x}{int(g):02x}{int(b):02x}"' for r, g, b in colors
         )
-        self.send(f'{{"seg":[{{"id":0,"i":[{hex_colors}]}}]}}\n')
+        self.send(f'{{"transition":0,"seg":[{{"id":0,"i":[{hex_colors}]}}]}}\n')
+
+    def _send_adalight(self, colors: np.ndarray) -> None:
+        """Stream one frame using WLED's fast Adalight binary protocol."""
+        ser = self._require_serial()
+        count = colors.shape[0]
+        if count < 1 or count > 65536:
+            raise RuntimeError(f"Unsupported LED count for Adalight: {count}")
+        high = (count - 1) >> 8
+        low = (count - 1) & 0xFF
+        frame = bytearray(6 + count * 3)
+        frame[0:3] = b"Ada"
+        frame[3] = high
+        frame[4] = low
+        frame[5] = high ^ low ^ 0x55
+        frame[6:] = np.ascontiguousarray(colors, dtype=np.uint8).reshape(-1, 3).tobytes()
+        try:
+            written = ser.write(frame)
+        except serial.SerialTimeoutException as exc:
+            raise RuntimeError(
+                "Serial write timed out. Reduce --fps or increase --baud."
+            ) from exc
+        if written != len(frame):
+            raise RuntimeError(f"Only wrote {written} of {len(frame)} bytes to serial")
+        ser.flush()
+        self._drain()
 
     def close(self) -> None:
         if self.serial is not None:
+            if self.protocol == "adalight":
+                try:
+                    self.serial.write(b'{"live":false}\n')
+                    self.serial.flush()
+                except serial.SerialException:
+                    pass
             try:
                 self.serial.close()
             finally:
@@ -865,20 +1096,32 @@ class WledSerial:
 # ---------------------------------------------------------------------------
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Send screen-edge ambilight colors to WLED over serial JSON.",
+        description="Send screen-edge ambilight colors to WLED over USB serial.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--port", help="Serial port, e.g. /dev/ttyUSB0 or COM5")
     parser.add_argument(
+        "--protocol",
+        choices=("json", "adalight"),
+        default="json",
+        help="Serial LED protocol. json uses WLED's JSON API; adalight streams compact binary realtime frames.",
+    )
+    parser.add_argument(
         "--baud",
         type=int,
-        default=460800,
-        help="Serial baud. The script temporarily switches WLED to this rate unless --no-baud-setup is used.",
+        default=argparse.SUPPRESS,
+        help=(
+            "Serial baud. Defaults to 115200 for adalight (WLED's boot rate, "
+            "no temporary baud switch) and 460800 for json."
+        ),
     )
     parser.add_argument(
         "--no-baud-setup",
         action="store_true",
-        help="Do not send WLED's temporary baud-change command; open the port at --baud directly.",
+        help=(
+            "Do not send WLED's temporary baud-change command; open the port "
+            "at --baud (or its protocol default) directly."
+        ),
     )
     parser.add_argument("--fps", type=float, default=20.0, help="Maximum frames per second")
     parser.add_argument(
@@ -886,6 +1129,16 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="mss monitor index (1 = first monitor). Portal capture uses the monitor chosen in the screen-sharing dialog.",
+    )
+    parser.add_argument(
+        "--capture-width",
+        type=int,
+        default=640,
+        metavar="PIXELS",
+        help=(
+            "Width used by the portal capture backend. 640 is enough for edge "
+            "colors and is the smoothest; 1920 captures full HD but can drop frames."
+        ),
     )
     parser.add_argument(
         "--edge-depth",
@@ -942,6 +1195,17 @@ def run(args: argparse.Namespace) -> int:
         raise ValueError("--brightness must not be negative")
     if args.edge_depth <= 0:
         raise ValueError("--edge-depth must be greater than zero")
+    if args.capture_width <= 0:
+        raise ValueError("--capture-width must be greater than zero")
+
+    baud = getattr(args, "baud", None)
+    if baud is None:
+        # Adalight only needs ~38 kbit/s for 61 LEDs at 20 FPS. Staying at
+        # WLED's boot rate avoids a temporary baud switch that is lost on
+        # reboot and is the most reliable choice.
+        baud = 115200 if args.protocol == "adalight" else 460800
+    if baud <= 0:
+        raise ValueError("--baud must be greater than zero")
 
     validate_layout()
 
@@ -952,11 +1216,16 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         capture_mode = resolve_capture_mode(args.capture)
-        capture = make_capture(capture_mode, args.monitor, args.fps)
+        capture = make_capture(capture_mode, args.monitor, args.fps, args.capture_width)
 
         if not args.dry_run:
             port = args.port or find_serial_port()
-            wled = WledSerial(port, args.baud, setup_baud=not args.no_baud_setup)
+            wled = WledSerial(
+                port,
+                baud,
+                setup_baud=not args.no_baud_setup,
+                protocol=args.protocol,
+            )
 
         smoother = Smoother(args.smoothing)
         boxes: list[tuple[int, int, int, int]] | None = None
@@ -968,7 +1237,11 @@ def run(args: argparse.Namespace) -> int:
         stats_start = time.perf_counter()
 
         if not args.quiet:
-            mode = "dry run" if args.dry_run else f"serial {args.port or 'auto'}"
+            mode = (
+                "dry run"
+                if args.dry_run
+                else f"{args.protocol} serial {args.port or 'auto'} at {baud} baud"
+            )
             print(
                 f"Streaming {LED_COUNT} LEDs at up to {args.fps:g} FPS "
                 f"({capture_mode} capture, {mode}). Ctrl+C to stop.",
