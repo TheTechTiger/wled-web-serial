@@ -58,6 +58,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -88,9 +89,10 @@ DRY_RUN_SEGMENTS = {
     "right": (0, 14),
     "top": (14, 35),
     "left": (35, 49),
+    "bottom": (49, 61),
 }
 
-BAND_LABELS = ("left", "right", "top")
+SEGMENT_LABELS = ("left", "right", "top", "bottom")
 
 
 # ---------------------------------------------------------------------------
@@ -153,11 +155,11 @@ def resolve_segments(
     segments: list[Segment],
     overrides: dict[str, tuple[str, object] | None],
 ) -> dict[str, Segment]:
-    """Map the left/right/top labels to WLED segments by override or name."""
+    """Map the left/right/top/bottom labels to WLED segments."""
     resolved: dict[str, Segment] = {}
     problems: list[str] = []
 
-    for label in BAND_LABELS:
+    for label in SEGMENT_LABELS:
         override = overrides[label]
         if override is not None:
             kind, value = override
@@ -192,14 +194,14 @@ def resolve_segments(
 
     if problems:
         raise RuntimeError(
-            "Could not resolve the left/right/top segments:\n  "
+            "Could not resolve the four audio segments:\n  "
             + "\n  ".join(problems)
             + "\nWLED reports these segments:\n"
             + describe_segments(segments)
-            + "\nName three segments left/right/top in WLED's Segments panel "
-            "(the control panel's '4-seg layout' button does this), or pass "
-            "--seg-left START:STOP / --seg-right / --seg-top (stop exclusive, "
-            "or id:N)."
+            + "\nName four segments left/right/top/bottom in WLED's Segments "
+            "panel (the control panel's '4-seg layout' button does this), or "
+            "pass --seg-left/--seg-right/--seg-top/--seg-bottom with "
+            "START:STOP (stop exclusive) or id:N."
         )
 
     for label, seg in resolved.items():
@@ -212,7 +214,7 @@ def dry_run_segments(
     overrides: dict[str, tuple[str, object] | None],
 ) -> dict[str, Segment]:
     resolved: dict[str, Segment] = {}
-    for label in BAND_LABELS:
+    for label in SEGMENT_LABELS:
         override = overrides[label]
         start, stop = DRY_RUN_SEGMENTS[label]
         if override is not None and override[0] == "range":
@@ -655,8 +657,8 @@ def analyze(
     freqs: np.ndarray,
     bass_range: tuple[float, float],
     treble_range: tuple[float, float],
-) -> tuple[float, float, float]:
-    """Return (bass, treble) band levels and overall time-domain RMS."""
+) -> tuple[float, float, float, np.ndarray]:
+    """Return bass/treble/amp levels plus the FFT magnitude spectrum."""
     x = np.nan_to_num(samples, nan=0.0, posinf=0.0, neginf=0.0)
     amp = float(np.sqrt(np.mean(x * x)))
     spec = np.abs(np.fft.rfft(x * window)) * (2.0 / window.sum())
@@ -667,7 +669,7 @@ def analyze(
             return 0.0
         return float(np.sqrt(np.mean(spec[mask] ** 2)))
 
-    return band(*bass_range), band(*treble_range), amp
+    return band(*bass_range), band(*treble_range), amp, spec
 
 
 # ---------------------------------------------------------------------------
@@ -758,6 +760,222 @@ class ColorCycler:
         return tuple(int(round(v)) for v in self.current)  # type: ignore[return-value]
 
 
+def color_distance(
+    first: tuple[int, int, int], second: tuple[int, int, int]
+) -> float:
+    return float(
+        np.sqrt(sum((int(a) - int(b)) ** 2 for a, b in zip(first, second)))
+    )
+
+
+class BeatPalette:
+    """Random beat colors that change with the other strips' color interval."""
+
+    _MIN_DISTANCE = 150.0
+
+    def __init__(self, interval: float, start: float | None = None):
+        self.interval = max(0.0, interval)
+        self.main, self.accent = self._pick_pair()
+        self._next_change = (
+            (start if start is not None else time.perf_counter()) + self.interval
+            if self.interval > 0
+            else float("inf")
+        )
+
+    @classmethod
+    def _pick_pair(cls) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+        main = random_color()
+        accent = random_color()
+        for _ in range(32):
+            if color_distance(main, accent) >= cls._MIN_DISTANCE:
+                break
+            accent = random_color()
+        return main, accent
+
+    def update(self, now: float) -> None:
+        if self.interval > 0 and now >= self._next_change:
+            self.main, self.accent = self._pick_pair()
+            self._next_change = now + self.interval
+
+
+@dataclass(frozen=True)
+class BeatEvent:
+    strength: float
+    interval: float | None
+    bpm: float | None
+
+
+class BeatDetector:
+    """Lightweight low-frequency onset detector driven by the FFT spectrum."""
+
+    _MIN_HISTORY = 4
+
+    def __init__(
+        self,
+        fps: float,
+        bass_range: tuple[float, float],
+        sensitivity: float = 1.5,
+        min_interval: float = 0.18,
+        history_seconds: float = 1.5,
+    ):
+        self.bass_range = bass_range
+        self.sensitivity = max(0.1, sensitivity)
+        self.min_interval = max(0.05, min_interval)
+        history_size = max(self._MIN_HISTORY, int(round(fps * history_seconds)))
+        self._history: deque[float] = deque(maxlen=history_size)
+        self._prev_low: np.ndarray | None = None
+        self._last_beat: float | None = None
+        self._intervals: deque[float] = deque(maxlen=8)
+
+    @property
+    def bpm(self) -> float | None:
+        if not self._intervals:
+            return None
+        median = float(np.median(self._intervals))
+        if median <= 0:
+            return None
+        return 60.0 / median
+
+    def update(
+        self,
+        spec: np.ndarray,
+        freqs: np.ndarray,
+        now: float,
+        level: float,
+        noise_floor: float,
+    ) -> BeatEvent | None:
+        mask = (freqs >= self.bass_range[0]) & (freqs <= self.bass_range[1])
+        if not mask.any():
+            return None
+        low = spec[mask]
+        if self._prev_low is None or self._prev_low.shape != low.shape:
+            self._prev_low = low.copy()
+            return None
+        # Positive spectral flux: a kick/drum attack, not a sustained bass line.
+        flux = float(np.maximum(0.0, low - self._prev_low).mean())
+        self._prev_low = low.copy()
+
+        history_ready = len(self._history) >= self._MIN_HISTORY
+        if history_ready:
+            baseline = float(np.mean(self._history))
+            spread = float(np.std(self._history))
+            threshold = baseline + self.sensitivity * spread
+        else:
+            threshold = 0.0
+
+        is_beat = (
+            history_ready
+            and level >= noise_floor
+            and flux > threshold
+            and flux > 0.0
+            and (
+                self._last_beat is None
+                or now - self._last_beat >= self.min_interval
+            )
+        )
+        self._history.append(flux)
+
+        if not is_beat:
+            return None
+
+        if self._last_beat is None:
+            interval = None
+        else:
+            interval = now - self._last_beat
+            if interval <= 3.0:
+                self._intervals.append(interval)
+            else:
+                self._intervals.clear()
+        self._last_beat = now
+        return BeatEvent(strength=flux, interval=interval, bpm=self.bpm)
+
+
+class MeterDetector:
+    """Infer 3/4 vs 4/4 from which beat positions carry the strongest accents."""
+
+    def __init__(self, setting: str = "auto", history: int = 12):
+        self.fixed = None if setting == "auto" else int(setting)
+        self.beats_per_bar = self.fixed or 4
+        self._history_size = history
+        self._strengths: deque[float] = deque(maxlen=history)
+        self._beat_index = 0
+        self._downbeat_phase: int | None = None
+
+    def reset(self) -> None:
+        self._strengths.clear()
+        self._beat_index = 0
+        self._downbeat_phase = None
+
+    def update(self, strength: float) -> int:
+        """Record one beat and return its 1-based position in the bar."""
+        index = self._beat_index
+        self._beat_index += 1
+        if self.fixed is not None:
+            return index % self.beats_per_bar + 1
+
+        self._strengths.append(max(0.0, strength))
+        if len(self._strengths) < self._history_size:
+            return index % self.beats_per_bar + 1
+
+        oldest_index = self._beat_index - len(self._strengths)
+        scores: dict[int, float] = {}
+        strongest_phases: dict[int, int] = {}
+        for meter in (3, 4):
+            sums = [0.0] * meter
+            counts = [0] * meter
+            for offset, value in enumerate(self._strengths):
+                phase = (oldest_index + offset) % meter
+                sums[phase] += value
+                counts[phase] += 1
+            phase_means = [sums[p] / counts[p] for p in range(meter)]
+            strongest = max(phase_means)
+            strongest_phase = phase_means.index(strongest)
+            other_mean = (sum(phase_means) - strongest) / (meter - 1)
+            scores[meter] = (strongest - other_mean) / (strongest + 1e-9)
+            strongest_phases[meter] = strongest_phase
+
+        current = self.beats_per_bar
+        best = max(scores, key=scores.get)
+        if best != current and scores[best] > scores[current] + 0.12:
+            self.beats_per_bar = best
+            self._downbeat_phase = strongest_phases[best]
+        elif self._downbeat_phase is None:
+            # Line the bar up with the strongest accent. The bottom accent is
+            # the beat before the next downbeat (the last beat of the bar).
+            self._downbeat_phase = strongest_phases[current]
+
+        if self._downbeat_phase is None:
+            return index % self.beats_per_bar + 1
+        return (index - self._downbeat_phase) % self.beats_per_bar + 1
+
+
+class BeatFlash:
+    """Full-brightness beat hit with a short hold and a smooth fade."""
+
+    def __init__(self, hold: float, fade: float):
+        self.hold = max(0.0, hold)
+        self.fade = max(0.0, fade)
+        self.color: tuple[int, int, int] | None = None
+        self._started = float("-inf")
+
+    def trigger(self, color: tuple[int, int, int], now: float) -> None:
+        self.color = color
+        self._started = now
+
+    def level(self, now: float) -> float:
+        if self.color is None:
+            return 0.0
+        age = now - self._started
+        if age < 0:
+            return 0.0
+        if age < self.hold:
+            return 1.0
+        fade_age = age - self.hold
+        if self.fade <= 0 or fade_age >= self.fade:
+            return 0.0
+        return 1.0 - fade_age / self.fade
+
+
 # ---------------------------------------------------------------------------
 # Serial / WLED
 # ---------------------------------------------------------------------------
@@ -815,10 +1033,11 @@ class AudioWledSerial(WledSerial):
         Retries until the names land: WLED sometimes needs a moment between the
         reset-segments command and the new segment descriptors.
         """
-        if led_count < 49:
+        if led_count < 50:
             raise RuntimeError(
                 f"WLED reports only {led_count} LEDs; the four-segment layout "
-                "needs at least 49. Set the LED count in WLED's LED Preferences."
+                "needs at least 50 so the bottom segment is not empty. Set the "
+                "LED count in WLED's LED Preferences."
             )
         targets = {
             0: "Right",
@@ -852,7 +1071,7 @@ class AudioWledSerial(WledSerial):
         raise RuntimeError(
             "Could not apply names to WLED's segments. Create them manually in "
             "WLED's Segments panel (Right/Top/Left/Bottom) or pass explicit "
-            "--seg-left/--seg-right/--seg-top overrides."
+            "--seg-left/--seg-right/--seg-top/--seg-bottom overrides."
         )
 
     def close(self) -> None:
@@ -1014,7 +1233,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Audio-reactive WLED bars over USB serial: bass on the left strip, "
-            "treble on the right strip, overall amplitude on the top strip."
+            "treble on the right strip, overall amplitude on the top strip, "
+            "and beat-synced flashes on the bottom strip."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -1110,8 +1330,8 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_COLOR_INTERVAL,
         metavar="SECONDS",
         help=(
-            "Seconds between random color changes for each strip; 0 keeps the "
-            "initial colors"
+            "Seconds between random color changes for each strip (also switches "
+            "the bottom beat colors); 0 keeps the initial colors"
         ),
     )
     parser.add_argument(
@@ -1120,6 +1340,43 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_COLOR_FADE,
         metavar="SECONDS",
         help="Cross-fade time from the current color to the next random color",
+    )
+    parser.add_argument(
+        "--beats-per-bar",
+        choices=("auto", "3", "4"),
+        default="auto",
+        help=(
+            "Beat grouping: auto detects 3/4 vs 4/4 from accent strength, or "
+            "force 3/4 (waltz) or 4/4"
+        ),
+    )
+    parser.add_argument(
+        "--beat-sensitivity",
+        type=float,
+        default=1.5,
+        metavar="FACTOR",
+        help="Higher values need a stronger transient before a beat is detected",
+    )
+    parser.add_argument(
+        "--beat-min-interval",
+        type=float,
+        default=0.18,
+        metavar="SECONDS",
+        help="Minimum time between detected beats; prevents double-triggering",
+    )
+    parser.add_argument(
+        "--beat-hold",
+        type=float,
+        default=0.10,
+        metavar="SECONDS",
+        help="Time the bottom strip stays at full brightness after a beat",
+    )
+    parser.add_argument(
+        "--beat-fade",
+        type=float,
+        default=0.30,
+        metavar="SECONDS",
+        help="Fade time from full brightness to black after the beat hold",
     )
     parser.add_argument(
         "--seg-left",
@@ -1141,6 +1398,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         metavar="SEG",
         help="Top strip segment as START:STOP or id:N",
+    )
+    parser.add_argument(
+        "--seg-bottom",
+        type=parse_seg_spec,
+        default=None,
+        metavar="SEG",
+        help="Bottom beat strip segment as START:STOP or id:N",
     )
     parser.add_argument(
         "--reverse-right",
@@ -1204,6 +1468,14 @@ def run(args: argparse.Namespace) -> int:
         raise ValueError("--color-interval must not be negative")
     if args.color_fade < 0:
         raise ValueError("--color-fade must not be negative")
+    if args.beat_sensitivity <= 0:
+        raise ValueError("--beat-sensitivity must be greater than zero")
+    if args.beat_min_interval <= 0:
+        raise ValueError("--beat-min-interval must be greater than zero")
+    if args.beat_hold < 0:
+        raise ValueError("--beat-hold must not be negative")
+    if args.beat_fade < 0:
+        raise ValueError("--beat-fade must not be negative")
 
     raise_process_priority()
 
@@ -1231,6 +1503,7 @@ def run(args: argparse.Namespace) -> int:
             "left": args.seg_left,
             "right": args.seg_right,
             "top": args.seg_top,
+            "bottom": args.seg_bottom,
         }
         strip_len: int | None = None
         if args.dry_run:
@@ -1260,8 +1533,8 @@ def run(args: argparse.Namespace) -> int:
                         "LED count, so the four-segment layout cannot be created."
                     )
                 print(
-                    "No left/right/top segments found; creating the named "
-                    "four-segment layout on WLED.",
+                    "No complete four-segment layout found; creating the named "
+                    "left/right/top/bottom layout on WLED.",
                     file=sys.stderr,
                 )
                 wled.setup_four_segments(count)
@@ -1287,8 +1560,13 @@ def run(args: argparse.Namespace) -> int:
 
         if not args.quiet:
             print("Audio segments:", file=sys.stderr)
-            roles = {"left": "bass", "right": "treble", "top": "amplitude"}
-            for label in BAND_LABELS:
+            roles = {
+                "left": "bass",
+                "right": "treble",
+                "top": "amplitude",
+                "bottom": "beat flash",
+            }
+            for label in SEGMENT_LABELS:
                 seg = resolved[label]
                 print(
                     f"  {label:<5} -> {roles[label]:<9} "
@@ -1334,12 +1612,23 @@ def run(args: argparse.Namespace) -> int:
                 color_start,
             ),
         }
+        beat_palette = BeatPalette(args.color_interval, color_start)
+        beat_detector = BeatDetector(
+            args.fps,
+            args.bass_range,
+            args.beat_sensitivity,
+            args.beat_min_interval,
+        )
+        meter = MeterDetector(args.beats_per_bar)
+        flash = BeatFlash(args.beat_hold, args.beat_fade)
+        beat_position = 0
 
         interval = 1.0 / args.fps
         deadline = time.perf_counter()
         frames = 0
         stats_start = time.perf_counter()
         last_levels = (0.0, 0.0, 0.0)
+        last_beat_time: float | None = None
 
         while True:
             now = time.perf_counter()
@@ -1351,7 +1640,7 @@ def run(args: argparse.Namespace) -> int:
                 deadline = time.perf_counter()
 
             samples = stream.read_window(args.fft)
-            bass_raw, treble_raw, amp_raw = analyze(
+            bass_raw, treble_raw, amp_raw, spec = analyze(
                 samples, window, freqs, args.bass_range, args.treble_range
             )
             # Silence the noise floor: FFT leakage of a loud band into a quiet
@@ -1369,7 +1658,24 @@ def run(args: argparse.Namespace) -> int:
             b, t, a = (float(v) for v in smoother.update(levels))
             last_levels = (b, t, a)
 
-            color_now = time.perf_counter()
+            beat_now = time.perf_counter()
+            beat_palette.update(beat_now)
+            beat = beat_detector.update(
+                spec, freqs, beat_now, bass_raw, floor
+            )
+            if beat is not None:
+                if beat.interval is None or beat.interval > 3.0:
+                    meter.reset()
+                beat_position = meter.update(beat.strength)
+                flash_color = (
+                    beat_palette.accent
+                    if beat_position == meter.beats_per_bar
+                    else beat_palette.main
+                )
+                flash.trigger(flash_color, beat_now)
+                last_beat_time = beat_now
+
+            color_now = beat_now
             bass_color = scale_color(cyclers["bass"].update(color_now), args.brightness)
             treble_color = scale_color(
                 cyclers["treble"].update(color_now), args.brightness
@@ -1387,6 +1693,20 @@ def run(args: argparse.Namespace) -> int:
             if args.reverse_top:
                 top = top[::-1]
 
+            bottom_level = flash.level(beat_now)
+            if flash.color is not None and bottom_level > 0:
+                bottom_color = scale_color(
+                    flash.color, args.brightness * bottom_level
+                )
+                bottom = np.tile(
+                    np.asarray(bottom_color, dtype=np.uint8),
+                    (resolved["bottom"].count, 1),
+                )
+            else:
+                bottom = np.zeros(
+                    (resolved["bottom"].count, 3), dtype=np.uint8
+                )
+
             if wled is not None and sender is not None:
                 sender.check()
                 if args.protocol == "adalight":
@@ -1395,6 +1715,7 @@ def run(args: argparse.Namespace) -> int:
                         (resolved["left"], left),
                         (resolved["right"], right),
                         (resolved["top"], top),
+                        (resolved["bottom"], bottom),
                     ):
                         end = min(seg.start + colors.shape[0], strip_len)
                         if seg.start < end:
@@ -1405,6 +1726,7 @@ def run(args: argparse.Namespace) -> int:
                         (resolved["left"], left),
                         (resolved["right"], right),
                         (resolved["top"], top),
+                        (resolved["bottom"], bottom),
                     ]
                     sender.send(
                         lambda entries=entries: send_segments_json(wled, entries)
@@ -1417,11 +1739,22 @@ def run(args: argparse.Namespace) -> int:
                 b_lo, b_hi = ranges["bass"].lo, ranges["bass"].hi
                 t_lo, t_hi = ranges["treble"].lo, ranges["treble"].hi
                 a_lo, a_hi = ranges["amp"].lo, ranges["amp"].hi
+                recent_beat = (
+                    last_beat_time is not None
+                    and now - last_beat_time < 4.0
+                )
+                if recent_beat:
+                    beat_text = f"beat {beat_position}/{meter.beats_per_bar}"
+                else:
+                    beat_text = "beat -"
+                bpm = beat_detector.bpm if recent_beat else None
+                bpm_text = f"~{bpm:.0f} BPM" if bpm is not None else "BPM -"
                 print(
                     f"{frames / elapsed:5.1f} FPS  "
                     f"bass {b:.2f} [{b_lo:.3g}..{b_hi:.3g}]  "
                     f"treble {t:.2f} [{t_lo:.3g}..{t_hi:.3g}]  "
-                    f"amp {a:.2f} [{a_lo:.3g}..{a_hi:.3g}]",
+                    f"amp {a:.2f} [{a_lo:.3g}..{a_hi:.3g}]  "
+                    f"{beat_text} {bpm_text}",
                     file=sys.stderr,
                 )
                 frames = 0

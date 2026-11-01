@@ -77,7 +77,7 @@ background tab is not detected. On Linux, install `wmctrl` or `xdotool` so the
 launcher can enumerate windows.
 
 - `wled_ambient.py` — screen ambilight (see `AMBILIGHT.md`)
-- `wled_audio.py` — audio-reactive bars (see `AUDIO.md`)
+- `wled_audio.py` — audio-reactive bars plus bottom-strip beat flash (see `AUDIO.md`)
 - `requirements-<os>.txt` — platform-specific dependencies
 
 ## Project layout
@@ -86,7 +86,7 @@ launcher can enumerate windows.
 index.html             # entire web app: inline CSS, JS, and SVG icons
 main.py                # venv bootstrap + automatic audio/ambient launcher
 wled_ambient.py        # screen ambilight over USB serial (see AMBILIGHT.md)
-wled_audio.py          # audio-reactive bars over USB serial (see AUDIO.md)
+wled_audio.py          # audio-reactive bars + beat flash over USB serial (see AUDIO.md)
 requirements-*.txt     # platform-specific Python dependencies
 ```
 

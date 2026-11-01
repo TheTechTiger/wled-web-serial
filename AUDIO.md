@@ -1,23 +1,27 @@
 # WLED audio-reactive bars
 
 Captures the computer's system audio, splits it into bass and treble bands
-plus overall amplitude, and streams the result to WLED over USB serial.
+plus overall amplitude, and streams the result to WLED over USB serial. The
+bottom strip flashes in time with the beat.
 
-| Strip | WLED segment | Driven by |
-| ----- | ------------ | --------- |
-| Left  | `left`       | bass (20–250 Hz by default) |
-| Right | `right`      | treble (2–20 kHz by default) |
-| Top   | `top`        | overall amplitude, centred on the strip |
+| Strip  | WLED segment | Driven by |
+| ------ | ------------ | --------- |
+| Left   | `left`       | bass (20–250 Hz by default) |
+| Right  | `right`      | treble (2–20 kHz by default) |
+| Top    | `top`        | overall amplitude, centred on the strip |
+| Bottom | `bottom`     | beat flash, with an accent on the last beat of each bar |
 
-The script looks for segments named `left`, `right`, and `top` (the names used
-by the Web Serial control panel's four-segment layout), or accepts explicit
-`--seg-left` / `--seg-right` / `--seg-top` overrides. If no segments match and
-no overrides were given, the four-segment layout is created on the board.
+The script looks for segments named `left`, `right`, `top`, and `bottom` (the
+names used by the Web Serial control panel's four-segment layout), or accepts
+explicit `--seg-left` / `--seg-right` / `--seg-top` / `--seg-bottom` overrides.
+If the four segments are not found and no overrides were given, the full
+four-segment layout is created on the board.
 
-Each strip starts with a random color and cross-fades to a new random color
-every `--color-interval` seconds (20 by default). Use `--color-fade` to control
-the transition time, explicit `--bass-color` / `--treble-color` / `--amp-color`
-values for the starting colors, or `--color-interval 0` to keep colors static:
+The three bars start with a random color and cross-fade to a new random color
+every `--color-interval` seconds (20 by default). The bottom beat colors switch
+at the same time. Use `--color-fade` to control the bar transition time,
+explicit `--bass-color` / `--treble-color` / `--amp-color` values for the
+starting colors, or `--color-interval 0` to keep colors static:
 
 ```bash
 # Static orange bass, blue treble, white amplitude
@@ -27,6 +31,33 @@ python wled_audio.py --color-interval 0 \
 # Fast color show: a new color every 5 seconds, 1-second cross-fade
 python wled_audio.py --color-interval 5 --color-fade 1
 ```
+
+## Beat flash
+
+The bottom strip flashes on detected kicks/onsets:
+
+- Beats 1–3 of a 4/4 bar use the current main color.
+- Beat 4 uses a different random accent color.
+- In 3/4, the first two beats use the main color and beat 3 is the accent.
+- The main and accent colors are random and guaranteed to be visibly
+  different. They change when the three bars change colors, not every bar.
+- Each hit is held at full brightness and then fades, so beats remain clearly
+  visible without a hard blink.
+
+`--beats-per-bar auto` (the default) estimates 3/4 vs 4/4 from the accent
+pattern. It takes a few bars to settle and works best with a clear downbeat.
+Force the meter when needed:
+
+```bash
+python wled_audio.py --beats-per-bar 3     # waltz
+python wled_audio.py --beats-per-bar 4     # common time
+python wled_audio.py --beat-sensitivity 2  # fewer false triggers
+python wled_audio.py --beat-hold 0.12 --beat-fade 0.35
+```
+
+If beat detection is too eager or too quiet, adjust `--beat-sensitivity`,
+`--beat-min-interval`, or `--noise-floor`. The periodic statistics show the
+current bar position and estimated BPM.
 
 ## Audio capture by platform
 
@@ -115,7 +146,12 @@ LEDs at stale levels.
 | `--bass-color COLOR`, `--treble-color`, `--amp-color` | Initial bar colors (RRGGBB or R,G,B; default random) |
 | `--color-interval SECONDS` | Time between random color changes (default 20; 0 disables) |
 | `--color-fade SECONDS` | Cross-fade time to the next color (default 2) |
-| `--seg-left`, `--seg-right`, `--seg-top` | Segment as `START:STOP` or `id:N` |
+| `--beats-per-bar {auto,3,4}` | Beat grouping; auto detects 3/4 vs 4/4 (default auto) |
+| `--beat-sensitivity FACTOR` | Higher values require a stronger transient (default 1.5) |
+| `--beat-min-interval SECONDS` | Refractory period between beats (default 0.18) |
+| `--beat-hold SECONDS` | Full-brightness beat hold (default 0.10) |
+| `--beat-fade SECONDS` | Beat fade time after the hold (default 0.30) |
+| `--seg-left`, `--seg-right`, `--seg-top`, `--seg-bottom` | Segment as `START:STOP` or `id:N` |
 | `--reverse-right`, `--reverse-top` | Grow those bars from the opposite end |
 | `--brightness FACTOR` | Scale lit colors (default 1.0) |
 | `--smoothing 0..1` | Temporal smoothing (default 0.35) |
