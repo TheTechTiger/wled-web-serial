@@ -24,13 +24,19 @@ whatever panel/taskbar is there; adjust `--edge-depth` if needed.
 
 ## Setup
 
-Python 3.12 and the local virtual environment are already set up in this
-directory. To recreate it:
+The easiest way is the platform-independent launcher, which creates `.venv`
+and installs the matching requirements automatically:
+
+```bash
+python main.py
+```
+
+To set up manually, use the requirements file for your OS:
 
 ```bash
 python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements-linux.txt   # or -windows.txt / -macos.txt
 ```
 
 For Wayland screen capture, install the PipeWire/GStreamer tools as well:

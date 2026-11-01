@@ -59,12 +59,35 @@ Web Serial will not be available there.
   35-48, bottom 49-60). Set the LED count to 61 in WLED's LED Preferences
   first.
 
+## Companion scripts
+
+`main.py` is a dependency-bootstrapping launcher: it creates `.venv` and
+installs the OS-specific requirements when needed, then runs the audio-reactive
+bars while YouTube Music is open in a browser window and the screen ambilight
+otherwise, switching automatically.
+
+```bash
+python main.py                 # primary display for ambilight
+python main.py --monitor 1     # force a specific monitor
+python main.py --status        # report whether YouTube Music is open
+```
+
+Detection uses the active browser tab/window title, so YouTube Music in a
+background tab is not detected. On Linux, install `wmctrl` or `xdotool` so the
+launcher can enumerate windows.
+
+- `wled_ambient.py` — screen ambilight (see `AMBILIGHT.md`)
+- `wled_audio.py` — audio-reactive bars (see `AUDIO.md`)
+- `requirements-<os>.txt` — platform-specific dependencies
+
 ## Project layout
 
 ```
-index.html         # entire web app: inline CSS, JS, and SVG icons
-wled_ambient.py    # screen ambilight over USB serial (see AMBILIGHT.md)
-wled_audio.py      # audio-reactive bars over USB serial (see AUDIO.md)
+index.html             # entire web app: inline CSS, JS, and SVG icons
+main.py                # venv bootstrap + automatic audio/ambient launcher
+wled_ambient.py        # screen ambilight over USB serial (see AMBILIGHT.md)
+wled_audio.py          # audio-reactive bars over USB serial (see AUDIO.md)
+requirements-*.txt     # platform-specific Python dependencies
 ```
 
 ## License

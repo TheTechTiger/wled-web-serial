@@ -33,15 +33,24 @@ python wled_audio.py --color-interval 5 --color-fade 1
 | Platform | Backend | Requirements |
 | -------- | ------- | ------------ |
 | Linux    | PulseAudio / PipeWire `parec` | `pulseaudio-utils` or `pipewire-pulse` (falls back to `soundcard` if `parec` is missing) |
-| Windows  | WASAPI loopback | the `soundcard` Python package (installed by `requirements.txt`) |
+| Windows  | WASAPI loopback | the `soundcard` Python package (installed by the Windows requirements) |
 | macOS    | virtual loopback input | `soundcard` plus a loopback device such as [BlackHole](https://existential.audio/blackhole/) |
 
 ## Setup
 
+The easiest way is the platform-independent launcher, which creates `.venv`
+and installs the matching requirements automatically:
+
+```bash
+python main.py
+```
+
+To set up manually:
+
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-linux.txt   # or -windows.txt / -macos.txt
 ```
 
 On macOS, install BlackHole and either select it as the output device or create
@@ -70,6 +79,26 @@ python wled_audio.py --seg-left 35:49 --seg-right 0:14 --seg-top 14:35
 
 The serial port can also be forced with `--port COM5` (Windows) or
 `--port /dev/ttyUSB0` (Linux/macOS).
+
+## Automatic switching with the ambilight
+
+`main.py` watches browser window titles and runs this script while YouTube
+Music is open, then switches to `wled_ambient.py` when it closes:
+
+```bash
+python main.py
+```
+
+Detection uses the active browser tab/window title, so YouTube Music in a
+background tab is not detected. On Linux, install `wmctrl` or `xdotool` so the
+launcher can enumerate windows.
+
+## Responsiveness
+
+Serial frames are written on a background thread and only the newest frame is
+kept, so a slow USB write cannot stall audio analysis. If the capture backend
+stops delivering samples, the output drops to silence instead of freezing the
+LEDs at stale levels.
 
 ## Options summary
 

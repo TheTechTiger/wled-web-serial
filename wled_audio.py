@@ -50,12 +50,15 @@ from __future__ import annotations
 import argparse
 import colorsys
 import json
+import os
 import random
 import shutil
+import signal
 import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -243,7 +246,7 @@ def _load_soundcard():
         raise RuntimeError(
             "The 'soundcard' package is required for audio capture on "
             f"{platform_name}. Install it with: pip install soundcard "
-            "(or pip install -r requirements.txt)."
+            "(or run python main.py to install the matching requirements)."
         ) from None
     return soundcard
 
@@ -423,6 +426,9 @@ class AudioStream:
 
     # Keep a few windows of history so a slow frame can never see a gap.
     _HISTORY_WINDOWS = 4
+    # If the capture thread stops delivering samples, replaying the last
+    # window would freeze the LEDs at stale levels. Treat that as silence.
+    _STALE_AFTER_SECONDS = 0.6
 
     def __init__(self, rate: int):
         self.rate = rate
@@ -430,9 +436,14 @@ class AudioStream:
         self.tail = bytearray()
         self._lock = threading.Lock()
         self._window_bytes = 0  # set by the first read_window call
+        self._last_append = 0.0
+        self._stall_reported = False
 
     def _append(self, data: bytes) -> None:
+        if not data:
+            return
         with self._lock:
+            self._last_append = time.monotonic()
             self.tail.extend(data)
             cap = max(self._window_bytes * self._HISTORY_WINDOWS, 1 << 16)
             if len(self.tail) > cap:
@@ -449,7 +460,27 @@ class AudioStream:
         self._check_healthy()
         with self._lock:
             self._window_bytes = samples * 4
-            buf = bytes(self.tail[-self._window_bytes:])
+            stale = (
+                self._last_append > 0.0
+                and time.monotonic() - self._last_append
+                > self._STALE_AFTER_SECONDS
+            )
+            if stale:
+                self.tail.clear()
+                buf = b""
+            else:
+                buf = bytes(self.tail[-self._window_bytes:])
+
+        if stale and not self._stall_reported:
+            print(
+                "Warning: audio capture stalled; outputting silence until it "
+                "recovers.",
+                file=sys.stderr,
+            )
+            self._stall_reported = True
+        elif not stale:
+            self._stall_reported = False
+
         if len(buf) < self._window_bytes:
             buf = b"\x00" * (self._window_bytes - len(buf)) + buf
         return np.frombuffer(buf, dtype="<f4").astype(np.float32)
@@ -849,6 +880,76 @@ def send_segments_json(
     wled.send('{"transition":0,"seg":[' + ",".join(parts) + "]}\n")
 
 
+class LatestFrameSender:
+    """Write serial frames on a background thread, keeping only the newest.
+
+    A blocked USB write (or a slow WLED JSON parser) used to stall the whole
+    audio loop, freezing the LEDs for a second or two. The audio loop now
+    hands over the latest frame and immediately continues analysing audio;
+    stale frames are dropped instead of queued.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._event = threading.Event()
+        self._stop = False
+        self._pending: Callable[[], None] | None = None
+        self._error: Exception | None = None
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def send(self, job: Callable[[], None]) -> None:
+        if self._error is not None:
+            return
+        with self._lock:
+            self._pending = job
+        self._event.set()
+
+    def _run(self) -> None:
+        while True:
+            self._event.wait()
+            self._event.clear()
+            if self._stop:
+                return
+            with self._lock:
+                job = self._pending
+                self._pending = None
+            if job is None:
+                continue
+            try:
+                job()
+            except Exception as exc:
+                self._error = exc
+                return
+
+    def check(self) -> None:
+        if self._error is not None:
+            raise RuntimeError(f"Serial write failed: {self._error}") from self._error
+
+    def close(self) -> None:
+        self._stop = True
+        self._event.set()
+        self._thread.join(timeout=2)
+
+
+def raise_process_priority() -> None:
+    """Best-effort priority bump so capture/analysis threads are not starved."""
+    try:
+        if IS_WINDOWS:
+            import ctypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+            kernel32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            kernel32.SetPriorityClass.restype = ctypes.c_int
+            # ABOVE_NORMAL_PRIORITY_CLASS; avoids starving the rest of the system.
+            kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00008000)
+        elif hasattr(os, "nice"):
+            os.nice(-5)
+    except (AttributeError, OSError):
+        pass
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1104,6 +1205,8 @@ def run(args: argparse.Namespace) -> int:
     if args.color_fade < 0:
         raise ValueError("--color-fade must not be negative")
 
+    raise_process_priority()
+
     nyquist = args.rate / 2.0
     for name, (lo, hi) in (
         ("--bass-range", args.bass_range),
@@ -1120,6 +1223,7 @@ def run(args: argparse.Namespace) -> int:
 
     wled: AudioWledSerial | None = None
     stream: AudioStream | None = None
+    sender: LatestFrameSender | None = None
 
     try:
         # -- segments --------------------------------------------------------
@@ -1195,6 +1299,8 @@ def run(args: argparse.Namespace) -> int:
         # -- audio -----------------------------------------------------------
         device = args.device or find_audio_device()
         stream = open_audio_stream(device, args.rate)
+        if wled is not None:
+            sender = LatestFrameSender()
         if not args.quiet:
             mode = "dry run" if args.dry_run else f"{args.protocol} serial"
             print(
@@ -1281,7 +1387,8 @@ def run(args: argparse.Namespace) -> int:
             if args.reverse_top:
                 top = top[::-1]
 
-            if wled is not None:
+            if wled is not None and sender is not None:
+                sender.check()
                 if args.protocol == "adalight":
                     frame = np.zeros((strip_len, 3), dtype=np.uint8)
                     for seg, colors in (
@@ -1292,15 +1399,15 @@ def run(args: argparse.Namespace) -> int:
                         end = min(seg.start + colors.shape[0], strip_len)
                         if seg.start < end:
                             frame[seg.start:end] = colors[: end - seg.start]
-                    wled.send_colors(frame)
+                    sender.send(lambda frame=frame: wled.send_colors(frame))
                 else:
-                    send_segments_json(
-                        wled,
-                        [
-                            (resolved["left"], left),
-                            (resolved["right"], right),
-                            (resolved["top"], top),
-                        ],
+                    entries = [
+                        (resolved["left"], left),
+                        (resolved["right"], right),
+                        (resolved["top"], top),
+                    ]
+                    sender.send(
+                        lambda entries=entries: send_segments_json(wled, entries)
                     )
 
             frames += 1
@@ -1328,6 +1435,8 @@ def run(args: argparse.Namespace) -> int:
     except serial.SerialException as exc:
         raise RuntimeError(f"Serial connection lost: {exc}") from exc
     finally:
+        if sender is not None:
+            sender.close()
         if stream is not None:
             stream.close()
         if wled is not None:
@@ -1359,6 +1468,10 @@ def print_audio_sources() -> int:
 
 
 def main() -> int:
+    if sys.platform.startswith("win") and hasattr(signal, "SIGBREAK"):
+        # main.py stops the script with CTRL_BREAK_EVENT; turn it into the
+        # same KeyboardInterrupt path as Ctrl+C so serial cleanup runs.
+        signal.signal(signal.SIGBREAK, signal.default_int_handler)
     args = parse_args()
     if args.list_ports:
         print_serial_ports()

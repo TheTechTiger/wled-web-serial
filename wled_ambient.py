@@ -32,6 +32,7 @@ import os
 import secrets
 import select
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -214,7 +215,8 @@ def _load_mss():
         from mss import MSS
     except ImportError:
         raise RuntimeError(
-            "mss is not installed; run: pip install -r requirements.txt"
+            "mss is not installed; run: python main.py (or pip install -r "
+            "requirements-<os>.txt)"
         ) from None
     return MSS
 
@@ -226,7 +228,7 @@ def _load_pillow():
     except ImportError:
         raise RuntimeError(
             "Pillow is required for the Spectacle capture backend; run: "
-            "pip install -r requirements.txt"
+            "python main.py (or pip install -r requirements-<os>.txt)"
         ) from None
     return Image
 
@@ -243,7 +245,8 @@ def _load_dbus():
         from dbus_fast.aio import MessageBus
     except ImportError:
         raise RuntimeError(
-            "dbus-fast is not installed; run: pip install -r requirements.txt"
+            "dbus-fast is not installed; run: pip install -r "
+            "requirements-linux.txt"
         ) from None
     return BusType, MessageType, Variant, MessageBus
 
@@ -1391,6 +1394,10 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    if sys.platform.startswith("win") and hasattr(signal, "SIGBREAK"):
+        # main.py stops the script with CTRL_BREAK_EVENT; turn it into the
+        # same KeyboardInterrupt path as Ctrl+C so serial cleanup runs.
+        signal.signal(signal.SIGBREAK, signal.default_int_handler)
     args = parse_args()
     if args.list_ports:
         print_serial_ports()
