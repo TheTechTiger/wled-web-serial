@@ -62,7 +62,9 @@ Web Serial will not be available there.
 ## Project layout
 
 ```
-index.html   # entire app: inline CSS, JS, and SVG icons
+index.html         # entire web app: inline CSS, JS, and SVG icons
+wled_ambient.py    # screen ambilight over USB serial (see AMBILIGHT.md)
+wled_audio.py      # audio-reactive bars over USB serial (see AUDIO.md)
 ```
 
 ## License
