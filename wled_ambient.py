@@ -12,12 +12,21 @@ The script captures the selected screen at up to 20 FPS, averages a strip of
 pixels around each LED position, smooths the result, and sends it to WLED over
 USB serial. The default is WLED's serial JSON API; --protocol adalight uses the
 compact binary realtime protocol for much lower latency.
+
+The capture backend is chosen for the platform:
+
+    Windows / macOS / Linux X11    mss (fast native capture)
+    Linux Wayland                  xdg-desktop-portal + PipeWire through
+                                   gst-launch-1.0 (Spectacle fallback on KDE)
+
+Optional dependencies are imported only by the backend that needs them.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.util
 import json
 import os
 import secrets
@@ -35,21 +44,29 @@ import numpy as np
 import serial
 from serial.tools import list_ports
 
-try:
-    from dbus_fast import BusType, MessageType, Variant
-    from dbus_fast.aio import MessageBus
-except ImportError:  # pragma: no cover - optional Wayland backend
-    BusType = MessageType = Variant = MessageBus = None
 
-try:
-    from mss import MSS
-except ImportError:  # pragma: no cover - handled with a friendly message
-    MSS = None
-
-try:
-    from PIL import Image
-except ImportError:  # pragma: no cover
-    Image = None
+# ---------------------------------------------------------------------------
+# Platform detection
+# ---------------------------------------------------------------------------
+# Optional dependencies are imported lazily by the backend that needs them, so
+# Windows and macOS never require the Linux-only dbus-fast package, and the
+# Linux portal backend does not need mss.
+IS_LINUX = sys.platform.startswith("linux")
+IS_WINDOWS = sys.platform.startswith("win")
+IS_MACOS = sys.platform == "darwin"
+IS_WAYLAND = IS_LINUX and (
+    os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"
+    or bool(os.environ.get("WAYLAND_DISPLAY"))
+)
+PLATFORM_NAME = (
+    "Windows"
+    if IS_WINDOWS
+    else "macOS"
+    if IS_MACOS
+    else "Linux"
+    if IS_LINUX
+    else sys.platform
+)
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +201,69 @@ def edge_colors_bgr(frame: np.ndarray, boxes: list[tuple[int, int, int, int]]) -
 # ---------------------------------------------------------------------------
 # Screen capture
 # ---------------------------------------------------------------------------
+def _module_available(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def _load_mss():
+    """Import mss lazily; it is the cross-platform capture backend."""
+    try:
+        from mss import MSS
+    except ImportError:
+        raise RuntimeError(
+            "mss is not installed; run: pip install -r requirements.txt"
+        ) from None
+    return MSS
+
+
+def _load_pillow():
+    """Import Pillow lazily; only the Spectacle backend needs it."""
+    try:
+        from PIL import Image
+    except ImportError:
+        raise RuntimeError(
+            "Pillow is required for the Spectacle capture backend; run: "
+            "pip install -r requirements.txt"
+        ) from None
+    return Image
+
+
+def _load_dbus():
+    """Import the portal dependencies lazily; they are Linux-only."""
+    if not IS_LINUX:
+        raise RuntimeError(
+            "Portal capture is only available on Linux Wayland (this is "
+            f"{PLATFORM_NAME})."
+        )
+    try:
+        from dbus_fast import BusType, MessageType, Variant
+        from dbus_fast.aio import MessageBus
+    except ImportError:
+        raise RuntimeError(
+            "dbus-fast is not installed; run: pip install -r requirements.txt"
+        ) from None
+    return BusType, MessageType, Variant, MessageBus
+
+
+def portal_available() -> bool:
+    """True when the Linux Wayland portal backend can be used."""
+    return (
+        IS_LINUX
+        and _module_available("dbus_fast")
+        and shutil.which("gst-launch-1.0") is not None
+    )
+
+
+def capture_modes() -> tuple[str, ...]:
+    """Capture backends offered on this platform."""
+    if IS_LINUX:
+        return ("auto", "portal", "mss", "spectacle")
+    return ("auto", "mss")
+
+
 def select_monitor(monitors: list[dict], monitor_index: int | None) -> dict:
     if len(monitors) < 2:
         raise RuntimeError("No screen monitor found")
@@ -201,8 +281,7 @@ class MssCapture:
     """Fast cross-platform capture (X11, Windows, macOS)."""
 
     def __init__(self, monitor_index: int | None):
-        if MSS is None:
-            raise RuntimeError("mss is not installed; run: pip install -r requirements.txt")
+        MSS = _load_mss()
         self._mss = MSS()
         self.monitor = select_monitor(self._mss.monitors, monitor_index)
 
@@ -225,10 +304,13 @@ class SpectacleCapture:
     """
 
     def __init__(self, monitor_index: int | None):
-        if Image is None:
-            raise RuntimeError("Pillow is required for the Spectacle backend")
-        if MSS is None:
-            raise RuntimeError("mss is required to look up monitor geometry")
+        if not IS_LINUX:
+            raise RuntimeError(
+                f"Spectacle capture is only available on Linux (this is "
+                f"{PLATFORM_NAME})."
+            )
+        self._image = _load_pillow()
+        MSS = _load_mss()
         self.spectacle = shutil.which("spectacle")
         if not self.spectacle:
             raise RuntimeError("spectacle was not found in PATH")
@@ -259,7 +341,7 @@ class SpectacleCapture:
             )
 
         try:
-            with Image.open(self.path) as image:
+            with self._image.open(self.path) as image:
                 rgb = np.asarray(image.convert("RGB"))
         finally:
             self.path.unlink(missing_ok=True)
@@ -304,10 +386,9 @@ class PortalCapture:
     """
 
     def __init__(self, fps: float, max_width: int = 640):
-        if MessageBus is None:
-            raise RuntimeError(
-                "dbus-fast is not installed; run: pip install -r requirements.txt"
-            )
+        self._BusType, self._MessageType, self._Variant, self._MessageBus = (
+            _load_dbus()
+        )
         if not shutil.which("gst-launch-1.0"):
             raise RuntimeError(
                 "gst-launch-1.0 is not installed. On Debian/Ubuntu/Kali install: "
@@ -351,7 +432,7 @@ class PortalCapture:
 
     # -- portal screen-cast session -----------------------------------------
     async def _async_setup(self) -> tuple[int, int, int]:
-        bus = await MessageBus(bus_type=BusType.SESSION).connect()
+        bus = await self._MessageBus(bus_type=self._BusType.SESSION).connect()
         self._bus = bus
         introspection = await bus.introspect(PORTAL_BUS, PORTAL_PATH)
         obj = bus.get_proxy_object(PORTAL_BUS, PORTAL_PATH, introspection)
@@ -360,7 +441,7 @@ class PortalCapture:
 
         def on_response(message) -> bool:
             if (
-                message.message_type == MessageType.SIGNAL
+                message.message_type == self._MessageType.SIGNAL
                 and message.interface == PORTAL_REQUEST
                 and message.member == "Response"
             ):
@@ -440,9 +521,8 @@ class PortalCapture:
             raise RuntimeError(f"The desktop portal returned error code {response_code}")
         return results
 
-    @staticmethod
-    def _value(value):
-        return value.value if isinstance(value, Variant) else value
+    def _value(self, value):
+        return value.value if isinstance(value, self._Variant) else value
 
     def _token(self, label: str) -> str:
         return f"wled_{label}_{secrets.token_hex(4)}"
@@ -453,8 +533,8 @@ class PortalCapture:
             token,
             iface.call_create_session(
                 {
-                    "handle_token": Variant("s", token),
-                    "session_handle_token": Variant("s", token),
+                    "handle_token": self._Variant("s", token),
+                    "session_handle_token": self._Variant("s", token),
                 }
             ),
         )
@@ -466,13 +546,13 @@ class PortalCapture:
     async def _select_sources(self, iface, session: str, restore_token: str | None) -> None:
         token = self._token("select")
         options = {
-            "handle_token": Variant("s", token),
-            "types": Variant("u", 1),  # 1 = monitors
-            "multiple": Variant("b", False),
-            "persist_mode": Variant("u", 2),  # persistent while possible
+            "handle_token": self._Variant("s", token),
+            "types": self._Variant("u", 1),  # 1 = monitors
+            "multiple": self._Variant("b", False),
+            "persist_mode": self._Variant("u", 2),  # persistent while possible
         }
         if restore_token:
-            options["restore_token"] = Variant("s", restore_token)
+            options["restore_token"] = self._Variant("s", restore_token)
         await self._request(token, iface.call_select_sources(session, options))
 
     async def _start(self, iface, session: str) -> dict:
@@ -482,7 +562,7 @@ class PortalCapture:
             iface.call_start(
                 session,
                 "",
-                {"handle_token": Variant("s", token)},
+                {"handle_token": self._Variant("s", token)},
             ),
         )
 
@@ -656,8 +736,8 @@ def resolve_capture_mode(requested: str) -> str:
     if requested != "auto":
         return requested
 
-    if sys.platform.startswith("linux") and os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland":
-        if MessageBus is not None and shutil.which("gst-launch-1.0"):
+    if IS_WAYLAND:
+        if portal_available():
             return "portal"
         desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").upper()
         if "KDE" in desktop and shutil.which("spectacle"):
@@ -676,14 +756,22 @@ def resolve_capture_mode(requested: str) -> str:
     return "mss"
 
 
-def make_capture(mode: str, monitor_index: int | None, fps: float, capture_width: int = 640):
+def make_capture(
+    mode: str,
+    monitor_index: int | None,
+    fps: float,
+    capture_width: int = 640,
+):
     if mode == "mss":
         return MssCapture(monitor_index)
     if mode == "spectacle":
         return SpectacleCapture(monitor_index)
     if mode == "portal":
         return PortalCapture(fps, capture_width)
-    raise ValueError(f"Unknown capture backend: {mode}")
+    raise ValueError(
+        f"Unknown capture backend {mode!r}; choose one of: "
+        + ", ".join(capture_modes())
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1128,7 +1216,10 @@ def parse_args() -> argparse.Namespace:
         "--monitor",
         type=int,
         default=None,
-        help="mss monitor index (1 = first monitor). Portal capture uses the monitor chosen in the screen-sharing dialog.",
+        help=(
+            "Monitor index for mss/Spectacle (1 = first monitor). Portal "
+            "capture uses the monitor chosen in the screen-sharing dialog."
+        ),
     )
     parser.add_argument(
         "--capture-width",
@@ -1163,9 +1254,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--capture",
-        choices=("auto", "portal", "mss", "spectacle"),
+        choices=capture_modes(),
         default="auto",
-        help="Screen capture backend. auto uses portal on Wayland and mss elsewhere.",
+        help=(
+            f"Screen capture backend for {PLATFORM_NAME}. auto uses the portal on "
+            "Wayland and mss elsewhere."
+        ),
     )
     parser.add_argument("--dry-run", action="store_true", help="Do not open a serial port")
     parser.add_argument("--list-ports", action="store_true", help="List serial ports and exit")

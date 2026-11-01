@@ -39,8 +39,19 @@ For Wayland screen capture, install the PipeWire/GStreamer tools as well:
 sudo apt install gstreamer1.0-tools gstreamer1.0-pipewire
 ```
 
-On X11, Windows, and macOS, the fast `mss` backend is used automatically and the
-GStreamer packages are not needed.
+## Capture backends
+
+| Platform        | Auto backend | Other available backend |
+| --------------- | ------------ | ----------------------- |
+| Windows         | `mss`        | —                       |
+| macOS           | `mss`        | —                       |
+| Linux X11       | `mss`        | —                       |
+| Linux Wayland   | `portal`     | `spectacle` (KDE fallback) |
+
+Only the selected backend loads its optional Python dependencies. The portal
+and Spectacle backends are rejected at startup on Windows and macOS, where the
+GStreamer packages are not needed. On macOS, grant the terminal (or the Python
+app) **Screen Recording** permission the first time it captures the screen.
 
 On Linux, the user normally needs to be in the `dialout` group:
 
@@ -248,9 +259,9 @@ AP.
 | `--baud N` | Serial baud (auto: 115200 for `adalight`, 460800 for `json`) |
 | `--no-baud-setup` | Open at `--baud` without sending WLED's baud-change command |
 | `--fps N` | Target frame rate (default 20) |
-| `--capture {auto,portal,mss,spectacle}` | Capture backend |
+| `--capture {auto,portal,mss,spectacle}` | Capture backend (Linux offers all; Windows/macOS offer `auto` and `mss`) |
 | `--capture-width PIXELS` | Portal capture width (default 640; 1920 for full HD) |
-| `--monitor N` | Monitor index for `mss`; portal uses the dialog selection |
+| `--monitor N` | Monitor index for `mss`/Spectacle; portal uses the dialog selection |
 | `--edge-depth PERCENT` | Sampling depth from the screen edge (default 6) |
 | `--brightness FACTOR` | Scale output colors (default 1.0) |
 | `--smoothing 0..1` | Temporal smoothing (default 0.35; 0 disables) |
