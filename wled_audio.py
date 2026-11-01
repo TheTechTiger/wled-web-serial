@@ -83,6 +83,7 @@ DEFAULT_BASS_RANGE = (20.0, 250.0)
 DEFAULT_TREBLE_RANGE = (2000.0, 20000.0)
 DEFAULT_COLOR_INTERVAL = 20.0
 DEFAULT_COLOR_FADE = 2.0
+DEFAULT_RANGE_WINDOW = 60.0
 
 # Dry-run fallback ranges, from the ambilight layout.
 DRY_RUN_SEGMENTS = {
@@ -630,21 +631,26 @@ def open_audio_stream(device: str, rate: int) -> AudioStream:
 # Analysis
 # ---------------------------------------------------------------------------
 class AutoRange:
-    """Dynamic min/max tracker: seeds both bounds with the first reading,
-    then follows every new extreme."""
+    """Scale readings against the min/max seen during a rolling time window.
 
-    def __init__(self) -> None:
+    Old extremes expire, so a quieter song gets the full strip once the louder
+    peaks have dropped out of the window instead of staying compressed forever.
+    """
+
+    def __init__(self, window: float = DEFAULT_RANGE_WINDOW) -> None:
+        self.window = max(0.001, window)
+        self._samples: deque[tuple[float, float]] = deque()
         self.lo: float | None = None
         self.hi: float | None = None
 
-    def update(self, current: float) -> float:
-        if self.lo is None or self.hi is None:
-            self.lo = self.hi = current
-        else:
-            if current < self.lo:
-                self.lo = current
-            if current > self.hi:
-                self.hi = current
+    def update(self, current: float, now: float) -> float:
+        self._samples.append((now, current))
+        cutoff = now - self.window
+        while self._samples and self._samples[0][0] < cutoff:
+            self._samples.popleft()
+
+        self.lo = min(value for _, value in self._samples)
+        self.hi = max(value for _, value in self._samples)
         span = self.hi - self.lo
         if span <= 1e-12:
             return 0.0
@@ -1437,6 +1443,16 @@ def parse_args() -> argparse.Namespace:
         help="Temporal smoothing of the levels; 0 is off, higher is smoother/slower",
     )
     parser.add_argument(
+        "--range-window",
+        type=float,
+        default=DEFAULT_RANGE_WINDOW,
+        metavar="SECONDS",
+        help=(
+            "History used to auto-scale each band's min/max; older extremes "
+            "expire so a quieter song still fills the strip"
+        ),
+    )
+    parser.add_argument(
         "--noise-floor",
         type=float,
         default=1e-3,
@@ -1472,6 +1488,8 @@ def run(args: argparse.Namespace) -> int:
         raise ValueError("--color-interval must not be negative")
     if args.color_fade < 0:
         raise ValueError("--color-fade must not be negative")
+    if args.range_window <= 0:
+        raise ValueError("--range-window must be greater than zero")
     if args.beat_sensitivity <= 0:
         raise ValueError("--beat-sensitivity must be greater than zero")
     if args.beat_min_interval <= 0:
@@ -1593,7 +1611,11 @@ def run(args: argparse.Namespace) -> int:
 
         window = np.hanning(args.fft)
         freqs = np.fft.rfftfreq(args.fft, 1.0 / args.rate)
-        ranges = {"bass": AutoRange(), "treble": AutoRange(), "amp": AutoRange()}
+        ranges = {
+            "bass": AutoRange(args.range_window),
+            "treble": AutoRange(args.range_window),
+            "amp": AutoRange(args.range_window),
+        }
         smoother = Smoother(args.smoothing)
         color_start = time.perf_counter()
         cyclers = {
@@ -1644,6 +1666,7 @@ def run(args: argparse.Namespace) -> int:
                 deadline = time.perf_counter()
 
             samples = stream.read_window(args.fft)
+            beat_now = time.perf_counter()
             bass_raw, treble_raw, amp_raw, spec = analyze(
                 samples, window, freqs, args.bass_range, args.treble_range
             )
@@ -1653,16 +1676,15 @@ def run(args: argparse.Namespace) -> int:
             gate = (lambda v: v if v >= floor else 0.0) if floor > 0 else (lambda v: v)
             levels = np.array(
                 [
-                    ranges["bass"].update(gate(bass_raw)),
-                    ranges["treble"].update(gate(treble_raw)),
-                    ranges["amp"].update(gate(amp_raw)),
+                    ranges["bass"].update(gate(bass_raw), beat_now),
+                    ranges["treble"].update(gate(treble_raw), beat_now),
+                    ranges["amp"].update(gate(amp_raw), beat_now),
                 ],
                 dtype=np.float32,
             )
             b, t, a = (float(v) for v in smoother.update(levels))
             last_levels = (b, t, a)
 
-            beat_now = time.perf_counter()
             beat_palette.update(beat_now)
             beat = beat_detector.update(
                 spec, freqs, beat_now, bass_raw, floor

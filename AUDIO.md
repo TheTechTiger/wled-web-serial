@@ -59,6 +59,17 @@ If beat detection is too eager or too quiet, adjust `--beat-sensitivity`,
 `--beat-min-interval`, or `--noise-floor`. The periodic statistics show the
 current bar position and estimated BPM.
 
+## Auto-scaling
+
+Each band is mapped to its strip using the minimum and maximum seen in the
+last `--range-window` seconds (60 by default). Old extremes expire, so after a
+quiet song has been playing for a minute, its own quiet peaks become the new
+full-scale range instead of the louder song's peaks owning the strip forever.
+
+For example, if the last minute contains values from 20 to 80, those become the
+new bounds and the strip spans that range. The periodic statistics show the
+current bounds for each band.
+
 ## Audio capture by platform
 
 | Platform | Backend | Requirements |
@@ -155,6 +166,7 @@ LEDs at stale levels.
 | `--reverse-right`, `--reverse-top` | Grow those bars from the opposite end |
 | `--brightness FACTOR` | Scale lit colors (default 1.0) |
 | `--smoothing 0..1` | Temporal smoothing (default 0.35) |
+| `--range-window SECONDS` | Rolling min/max history for auto-scaling (default 60) |
 | `--noise-floor LEVEL` | Treat band levels below this as silence (default 0.001) |
 | `--dry-run` | Analyse audio without serial output |
 | `--list-audio` | List capture devices and exit |
