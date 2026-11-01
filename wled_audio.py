@@ -433,8 +433,9 @@ class AudioStream:
     # window would freeze the LEDs at stale levels. Treat that as silence.
     _STALE_AFTER_SECONDS = 0.6
 
-    def __init__(self, rate: int):
+    def __init__(self, rate: int, channels: int = 1):
         self.rate = rate
+        self.channels = max(1, int(channels))
         self.device = ""
         self.tail = bytearray()
         self._lock = threading.Lock()
@@ -456,13 +457,15 @@ class AudioStream:
         """Raise RuntimeError if the backend stopped producing audio."""
 
     def read_window(self, samples: int) -> np.ndarray:
-        """Return the newest `samples` float32 samples, zero-padded if short.
+        """Return the newest `samples` frames, zero-padded if short.
 
-        Non-blocking: the newest samples were staged by the reader thread.
+        Mono streams return shape ``(samples,)``; stereo streams return
+        ``(samples, channels)`` with channels interleaved in the capture data.
+        Non-blocking: the newest frames were staged by the reader thread.
         """
         self._check_healthy()
         with self._lock:
-            self._window_bytes = samples * 4
+            self._window_bytes = samples * 4 * self.channels
             stale = (
                 self._last_append > 0.0
                 and time.monotonic() - self._last_append
@@ -486,14 +489,17 @@ class AudioStream:
 
         if len(buf) < self._window_bytes:
             buf = b"\x00" * (self._window_bytes - len(buf)) + buf
-        return np.frombuffer(buf, dtype="<f4").astype(np.float32)
+        data = np.frombuffer(buf, dtype="<f4").astype(np.float32, copy=False)
+        if self.channels > 1:
+            return data.reshape(-1, self.channels)
+        return data
 
     def close(self) -> None:
         raise NotImplementedError
 
 
 class PulseAudioStream(AudioStream):
-    """Reads mono float32 PCM from parec (PulseAudio / PipeWire).
+    """Reads stereo float32 PCM from parec (PulseAudio / PipeWire).
 
     A background thread drains parec's pipe continuously at production rate.
     Consuming a fixed-size chunk per frame instead would read audio slower
@@ -507,14 +513,14 @@ class PulseAudioStream(AudioStream):
             raise RuntimeError(
                 "parec was not found; install pulseaudio-utils / pipewire-pulse."
             )
-        super().__init__(rate)
+        super().__init__(rate, channels=2)
         self.device = device
         self._proc = subprocess.Popen(
             [
                 "parec",
                 "--format=float32le",
                 f"--rate={rate}",
-                "--channels=1",
+                "--channels=2",
                 "--raw",
                 f"--device={device}",
             ],
@@ -561,25 +567,32 @@ class PulseAudioStream(AudioStream):
 
 
 class SoundCardStream(AudioStream):
-    """Reads mono float32 PCM through the cross-platform soundcard package.
+    """Reads float32 PCM through the cross-platform soundcard package.
 
-    Windows captures the default speaker's WASAPI loopback; macOS captures a
-    virtual loopback input such as BlackHole. A background thread drains the
-    recorder so the LED loop always sees the newest audio instead of a backlog.
+    Stereo devices are captured as two channels so the top strip can show
+    left/right levels; mono devices stay mono. Windows captures the default
+    speaker's WASAPI loopback; macOS captures a virtual loopback input such as
+    BlackHole. A background thread drains the recorder so the LED loop always
+    sees the newest audio instead of a backlog.
     """
 
     _BLOCK_FRAMES = 1024
 
     def __init__(self, device: str, rate: int):
-        super().__init__(rate)
+        self._microphone = _soundcard_microphone(device)
+        try:
+            device_channels = int(getattr(self._microphone, "channels", 1) or 1)
+        except (TypeError, ValueError):
+            device_channels = 1
+        channels = 2 if device_channels >= 2 else 1
+        super().__init__(rate, channels)
         self._error: str | None = None
         self._ready = threading.Event()
         self._stop = threading.Event()
-        self._microphone = _soundcard_microphone(device)
         self.device = str(self._microphone.name)
         self._recorder = self._microphone.recorder(
             samplerate=rate,
-            channels=1,
+            channels=channels,
             blocksize=self._BLOCK_FRAMES,
         )
         self._reader = threading.Thread(target=self._drain, daemon=True)
@@ -600,9 +613,18 @@ class SoundCardStream(AudioStream):
                     if chunk is None or len(chunk) == 0:
                         continue
                     samples = np.asarray(chunk, dtype=np.float32)
-                    if samples.ndim > 1:
-                        samples = samples.mean(axis=1)
-                    self._append(samples.astype("<f4", copy=False).tobytes())
+                    if samples.ndim == 1:
+                        samples = samples.reshape(-1, 1)
+                    if self.channels == 1:
+                        if samples.shape[1] != 1:
+                            samples = samples.mean(axis=1, keepdims=True)
+                    elif samples.shape[1] == 1:
+                        samples = np.repeat(samples, self.channels, axis=1)
+                    elif samples.shape[1] > self.channels:
+                        samples = samples[:, : self.channels]
+                    self._append(
+                        np.ascontiguousarray(samples, dtype="<f4").tobytes()
+                    )
         except Exception as exc:  # soundcard surfaces backend errors this way
             self._error = f"{type(exc).__name__}: {exc}"
         finally:
@@ -643,7 +665,7 @@ class AutoRange:
         self.lo: float | None = None
         self.hi: float | None = None
 
-    def update(self, current: float, now: float) -> float:
+    def add(self, current: float, now: float) -> None:
         self._samples.append((now, current))
         cutoff = now - self.window
         while self._samples and self._samples[0][0] < cutoff:
@@ -651,10 +673,18 @@ class AutoRange:
 
         self.lo = min(value for _, value in self._samples)
         self.hi = max(value for _, value in self._samples)
+
+    def normalize(self, current: float) -> float:
+        if self.lo is None or self.hi is None:
+            return 0.0
         span = self.hi - self.lo
         if span <= 1e-12:
             return 0.0
         return max(0.0, min(1.0, (current - self.lo) / span))
+
+    def update(self, current: float, now: float) -> float:
+        self.add(current, now)
+        return self.normalize(current)
 
 
 def analyze(
@@ -663,9 +693,21 @@ def analyze(
     freqs: np.ndarray,
     bass_range: tuple[float, float],
     treble_range: tuple[float, float],
-) -> tuple[float, float, float, np.ndarray]:
-    """Return bass/treble/amp levels plus the FFT magnitude spectrum."""
+) -> tuple[float, float, float, tuple[float, ...], np.ndarray]:
+    """Return band levels, per-channel RMS, and the FFT magnitude spectrum.
+
+    Bass and treble are measured on the mono mix. The channel RMS values are
+    returned separately so the top strip can show left and right levels.
+    """
     x = np.nan_to_num(samples, nan=0.0, posinf=0.0, neginf=0.0)
+    if x.ndim == 2:
+        channel_amps = tuple(
+            float(np.sqrt(np.mean(x[:, channel] * x[:, channel])))
+            for channel in range(x.shape[1])
+        )
+        x = x.mean(axis=1)
+    else:
+        channel_amps = (float(np.sqrt(np.mean(x * x))),)
     amp = float(np.sqrt(np.mean(x * x)))
     spec = np.abs(np.fft.rfft(x * window)) * (2.0 / window.sum())
 
@@ -675,7 +717,7 @@ def analyze(
             return 0.0
         return float(np.sqrt(np.mean(spec[mask] ** 2)))
 
-    return band(*bass_range), band(*treble_range), amp, spec
+    return band(*bass_range), band(*treble_range), amp, channel_amps, spec
 
 
 # ---------------------------------------------------------------------------
@@ -700,6 +742,31 @@ def fill_centered(count: int, level: float, color: tuple[int, int, int]) -> np.n
     radius = int(round(level * (count - 1) / 2.0))
     idx = np.arange(count, dtype=np.float32)
     out[np.abs(idx - center) <= radius + 0.5] = color
+    return out
+
+
+def fill_split(
+    count: int,
+    left_level: float,
+    right_level: float,
+    color: tuple[int, int, int],
+) -> np.ndarray:
+    """Fill from the middle toward each end, with a separate level per half.
+
+    Index 0 is the left end and the last index is the right end. A level of 0
+    lights the middle LED(s), and a level of 1 lights the whole half.
+    """
+    out = np.zeros((count, 3), dtype=np.uint8)
+    if count <= 0:
+        return out
+    center = (count - 1) / 2.0
+    max_radius = (count - 1) / 2.0
+    left_radius = int(round(max(0.0, min(1.0, left_level)) * max_radius))
+    right_radius = int(round(max(0.0, min(1.0, right_level)) * max_radius))
+    idx = np.arange(count, dtype=np.float32)
+    left = (idx <= center) & ((center - idx) <= left_radius + 0.5)
+    right = (idx >= center) & ((idx - center) <= right_radius + 0.5)
+    out[left | right] = color
     return out
 
 
@@ -1653,7 +1720,8 @@ def run(args: argparse.Namespace) -> int:
         deadline = time.perf_counter()
         frames = 0
         stats_start = time.perf_counter()
-        last_levels = (0.0, 0.0, 0.0)
+        last_levels = (0.0, 0.0, 0.0, 0.0)
+        stereo = False
         last_beat_time: float | None = None
 
         while True:
@@ -1667,23 +1735,40 @@ def run(args: argparse.Namespace) -> int:
 
             samples = stream.read_window(args.fft)
             beat_now = time.perf_counter()
-            bass_raw, treble_raw, amp_raw, spec = analyze(
+            bass_raw, treble_raw, amp_raw, channel_amps, spec = analyze(
                 samples, window, freqs, args.bass_range, args.treble_range
             )
             # Silence the noise floor: FFT leakage of a loud band into a quiet
             # one must not stretch that band's min/max range to full scale.
             floor = args.noise_floor
             gate = (lambda v: v if v >= floor else 0.0) if floor > 0 else (lambda v: v)
+            stereo = len(channel_amps) >= 2
+            if stereo:
+                left_amp_raw = gate(channel_amps[0])
+                right_amp_raw = gate(channel_amps[1])
+                amp_range = ranges["amp"]
+                # Both channels share one range so their halves stay in
+                # proportion to each other.
+                amp_range.add(left_amp_raw, beat_now)
+                amp_range.add(right_amp_raw, beat_now)
+                amp_left = amp_range.normalize(left_amp_raw)
+                amp_right = amp_range.normalize(right_amp_raw)
+            else:
+                amp_left = ranges["amp"].update(gate(amp_raw), beat_now)
+                amp_right = amp_left
             levels = np.array(
                 [
                     ranges["bass"].update(gate(bass_raw), beat_now),
                     ranges["treble"].update(gate(treble_raw), beat_now),
-                    ranges["amp"].update(gate(amp_raw), beat_now),
+                    amp_left,
+                    amp_right,
                 ],
                 dtype=np.float32,
             )
-            b, t, a = (float(v) for v in smoother.update(levels))
-            last_levels = (b, t, a)
+            b, t, amp_left, amp_right = (
+                float(v) for v in smoother.update(levels)
+            )
+            last_levels = (b, t, amp_left, amp_right)
 
             beat_palette.update(beat_now)
             beat = beat_detector.update(
@@ -1710,14 +1795,22 @@ def run(args: argparse.Namespace) -> int:
 
             left = fill_linear(resolved["left"].count, b, bass_color)
             right = fill_linear(resolved["right"].count, t, treble_color)
-            top = fill_centered(resolved["top"].count, a, amp_color)
+            top_count = resolved["top"].count
+            if stereo:
+                top = fill_split(top_count, amp_left, amp_right, amp_color)
+                # The top strip runs right -> left. Reverse the logical
+                # left -> right split unless the strip is wired the other way.
+                if not args.reverse_top:
+                    top = top[::-1]
+            else:
+                top = fill_centered(top_count, amp_left, amp_color)
+                if args.reverse_top:
+                    top = top[::-1]
             # The left strip wraps around the screen, so it always fills
             # from its last LED backward (level 0 -> LED 48, not 35).
             left = left[::-1]
             if args.reverse_right:
                 right = right[::-1]
-            if args.reverse_top:
-                top = top[::-1]
 
             bottom_level = flash.level(beat_now)
             if flash.color is not None and bottom_level > 0:
@@ -1775,11 +1868,18 @@ def run(args: argparse.Namespace) -> int:
                     beat_text = "beat -"
                 bpm = beat_detector.bpm if recent_beat else None
                 bpm_text = f"~{bpm:.0f} BPM" if bpm is not None else "BPM -"
+                if stereo:
+                    amp_text = (
+                        f"amp L {amp_left:.2f} R {amp_right:.2f} "
+                        f"[{a_lo:.3g}..{a_hi:.3g}]"
+                    )
+                else:
+                    amp_text = f"amp {amp_left:.2f} [{a_lo:.3g}..{a_hi:.3g}]"
                 print(
                     f"{frames / elapsed:5.1f} FPS  "
                     f"bass {b:.2f} [{b_lo:.3g}..{b_hi:.3g}]  "
                     f"treble {t:.2f} [{t_lo:.3g}..{t_hi:.3g}]  "
-                    f"amp {a:.2f} [{a_lo:.3g}..{a_hi:.3g}]  "
+                    f"{amp_text}  "
                     f"{beat_text} {bpm_text}",
                     file=sys.stderr,
                 )
@@ -1788,8 +1888,16 @@ def run(args: argparse.Namespace) -> int:
 
     except KeyboardInterrupt:
         if not args.quiet:
-            b, t, a = last_levels  # type: ignore[misc]
-            print(f"\nStopped (last levels: bass {b:.2f}, treble {t:.2f}, amp {a:.2f}).", file=sys.stderr)
+            b, t, amp_left, amp_right = last_levels  # type: ignore[misc]
+            if stereo:
+                amp_text = f"L {amp_left:.2f}, R {amp_right:.2f}"
+            else:
+                amp_text = f"{amp_left:.2f}"
+            print(
+                f"\nStopped (last levels: bass {b:.2f}, treble {t:.2f}, "
+                f"amp {amp_text}).",
+                file=sys.stderr,
+            )
         return 0
     except serial.SerialException as exc:
         raise RuntimeError(f"Serial connection lost: {exc}") from exc

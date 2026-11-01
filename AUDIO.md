@@ -8,7 +8,7 @@ bottom strip flashes in time with the beat.
 | ------ | ------------ | --------- |
 | Left   | `left`       | bass (20–250 Hz by default) |
 | Right  | `right`      | treble (2–20 kHz by default) |
-| Top    | `top`        | overall amplitude, centred on the strip |
+| Top    | `top`        | left/right channel levels split at the middle (mono: overall amplitude centred) |
 | Bottom | `bottom`     | beat flash, with an accent on the last beat of each bar |
 
 The script looks for segments named `left`, `right`, `top`, and `bottom` (the
@@ -58,6 +58,11 @@ python wled_audio.py --beat-hold 0.12 --beat-fade 0.35
 If beat detection is too eager or too quiet, adjust `--beat-sensitivity`,
 `--beat-min-interval`, or `--noise-floor`. The periodic statistics show the
 current bar position and estimated BPM.
+
+When the capture device reports two channels, the top strip splits at its
+middle: from the middle toward one end shows the left channel, and toward the
+other end shows the right channel. Mono input keeps the original centred fill.
+Use `--reverse-top` to swap which end shows which channel.
 
 ## Auto-scaling
 
