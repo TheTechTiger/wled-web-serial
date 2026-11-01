@@ -860,6 +860,10 @@ class BeatDetector:
             baseline = float(np.mean(self._history))
             spread = float(np.std(self._history))
             threshold = baseline + self.sensitivity * spread
+            # A sustained note plus noise has a small but nonzero spectral
+            # flux. Require the onset to stand out from the current band level
+            # so random bin-to-bin noise cannot trigger a beat.
+            threshold = max(threshold, max(0.0, level) * 0.01)
         else:
             threshold = 0.0
 
