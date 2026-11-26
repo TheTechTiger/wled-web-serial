@@ -792,7 +792,7 @@ body[data-mode="serial"] .terminal-head .dot{background:var(--green);box-shadow:
         </div>
         <div class="global-actions">
           <button class="btn btn-sm" id="resetSegmentsBtn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg> Reset segments</button>
-          <button class="btn btn-sm" id="configureSegmentsBtn" type="button" title="Create four segments for a 60-LED frame (0-13, 14-34, 35-48, 49-59)"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg> 4-seg layout</button>
+          <button class="btn btn-sm" id="configureSegmentsBtn" type="button" title="Create four segments for a 60-LED frame (0-10, 11-24, 25-45, 46-59)"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg> 4-seg layout</button>
         </div>
       </div>
     </section>
@@ -1785,11 +1785,11 @@ function resetSegments() {
 }
 function configureFourSegments() {
   const total = totalLeds();
-  const names = ['Right', 'Top', 'Left', 'Bottom'];
-  const ranges = [[0, 14], [14, 35], [35, 49], [49, 61]];
-  const message = total === 61
-    ? 'Create four segments for the 61-LED ambilight frame: right 0-13, top 14-34, left 35-48, bottom 49-60. Existing segments will be replaced.'
-    : `Your strip currently reports ${total} LEDs, not 61. Set LED count to 61 in WLED LED Preferences first, or the ranges may be rejected.`;
+  const names = ['Bottom', 'Left', 'Top', 'Right'];
+  const ranges = [[0, 11], [11, 25], [25, 46], [46, 60]];
+  const message = total === 60
+    ? 'Create four segments for the 60-LED ambilight frame: bottom 0-10, left 11-24, top 25-45, right 46-59. Existing segments will be replaced.'
+    : `Your strip currently reports ${total} LEDs, not 60. Set LED count to 60 in WLED LED Preferences first, or the ranges may be rejected.`;
   confirmAction({
     title: 'Configure 4-segment layout?',
     message,

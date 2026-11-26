@@ -55,9 +55,9 @@ Web Serial will not be available there.
 - Preset names are stored locally; hardware presets are saved with brightness
   and segment bounds included.
 - Reboot uses WLED's `{"rb":true}` command.
-- The 4-segment layout assumes a 61-LED frame (right 0-13, top 14-34, left
-  35-48, bottom 49-60). Set the LED count to 61 in WLED's LED Preferences
-  first.
+- The 4-segment layout assumes a 60-LED frame (bottom 0-10, left 11-24, top
+  25-45, right 46-59). Set the LED count to 60 in WLED's LED Preferences
+  first. The bottom strip does not cover the full bottom edge.
 
 ## Project layout
 
