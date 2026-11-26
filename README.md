@@ -25,12 +25,12 @@ controller directly over its USB serial port, including offline.
 
 ## Quick start
 
-**Just want to use it?** Download `wled-web-serial.html` from the
-[latest release](https://github.com/TheTechTiger/wled-web-serial/releases),
-open it in Chrome/Edge, and click **Connect USB**.
+**Just want to use it?** Open the hosted app at
+<https://thetechtiger.github.io/wled-web-serial/> in Chrome/Edge, then click
+**Connect USB**.
 
 Web Serial requires a Chromium-based browser and a secure context (HTTPS or
-`localhost`). When serving from this checkout:
+`localhost`). To run from this checkout:
 
 ```bash
 cd wled-web-serial
