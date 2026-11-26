@@ -1,0 +1,49 @@
+/* base.css
+ * Design tokens, reset, base typography and the boot loader.
+ */
+
+:root{
+  --bg:#0d0e10; --bg-2:#121317; --panel:#181a1e; --panel-2:#1f2227; --panel-3:#272b31;
+  --line:#2a2d34; --line-soft:#22252b; --text:#f2f3f5; --muted:#969ba5; --muted-2:#70757f;
+  --blue:#4d9bff; --blue-soft:rgba(77,155,255,.13); --green:#3ddc84; --amber:#f0b34d;
+  --red:#ff6b6b; --radius:18px; --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;
+  --font:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --glow-rgb:255,160,0; --primary:#ffa500;
+}
+*{box-sizing:border-box}
+html{color-scheme:dark}
+
+.boot-loader{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;gap:16px;background:var(--bg);transition:opacity .45s ease,visibility .45s ease}
+.boot-loader.hidden{opacity:0;visibility:hidden;pointer-events:none}
+.boot-mark{display:flex;gap:6px;align-items:flex-end;height:34px}
+.boot-mark span{width:8px;border-radius:4px;background:linear-gradient(180deg,var(--accent),var(--accent-2));animation:bootBars 1s ease-in-out infinite}
+.boot-mark span:nth-child(2){animation-delay:.15s;height:26px}
+.boot-mark span:nth-child(1){height:18px}
+.boot-mark span:nth-child(3){height:30px;animation-delay:.3s}
+@keyframes bootBars{0%,100%{transform:scaleY(.55);opacity:.7}50%{transform:scaleY(1);opacity:1}}
+.boot-spinner{width:34px;height:34px;border:3px solid rgba(255,255,255,.12);border-top-color:var(--accent);border-radius:50%;animation:spin .75s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.boot-text{font-size:13px;color:var(--muted);letter-spacing:.02em}
+body{
+  margin:0;min-height:100vh;background:
+    radial-gradient(1000px 600px at 12% -20%,rgba(var(--glow-rgb),.10),transparent 60%),
+    radial-gradient(800px 500px at 100% 0%,rgba(77,155,255,.055),transparent 60%),
+    var(--bg);
+  color:var(--text);font-family:var(--font);font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(600px 300px at 50% 110%,rgba(var(--glow-rgb),.045),transparent 70%);}
+::selection{background:rgba(77,155,255,.35)}
+*{scrollbar-width:thin;scrollbar-color:#3a3e46 transparent}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#343840;border-radius:99px;border:2px solid var(--bg)}
+::-webkit-scrollbar-thumb:hover{background:#454a54}
+h1,h2,h3,p{margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:var(--blue)}
+.hidden{display:none!important}
+.icon{width:18px;height:18px;flex:none;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.svg-defs{position:absolute;width:0;height:0;overflow:hidden}

@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- Generated from src/ by tools/build.js — do not edit directly. Run: node tools/build.js -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -7,6 +8,10 @@
 <title>WLED · Web Serial</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23131518'/%3E%3Crect x='7' y='12' width='4' height='13' rx='2' fill='%23ff5d7a'/%3E%3Crect x='14' y='8' width='4' height='17' rx='2' fill='%234be0b0'/%3E%3Crect x='21' y='15' width='4' height='10' rx='2' fill='%23c0a6ff'/%3E%3C/svg%3E">
 <style>
+/* base.css
+ * Design tokens, reset, base typography and the boot loader.
+ */
+
 :root{
   --bg:#0d0e10; --bg-2:#121317; --panel:#181a1e; --panel-2:#1f2227; --panel-3:#272b31;
   --line:#2a2d34; --line-soft:#22252b; --text:#f2f3f5; --muted:#969ba5; --muted-2:#70757f;
@@ -52,6 +57,10 @@ a{color:var(--blue)}
 .hidden{display:none!important}
 .icon{width:18px;height:18px;flex:none;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .svg-defs{position:absolute;width:0;height:0;overflow:hidden}
+
+/* layout.css
+ * Top bar, notice banner, page shell, panels and card grids.
+ */
 
 /* top bar */
 .topbar{
@@ -136,6 +145,10 @@ body[data-mode="serial"] .notice{display:none}
 .muted{color:var(--muted)}
 .mono{font-family:var(--mono)}
 
+/* controls.css
+ * Buttons, form fields, switches and range sliders.
+ */
+
 /* buttons / forms */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:9px 14px;border-radius:11px;
   border:1px solid var(--line);background:var(--panel-2);color:var(--text);font-size:12px;font-weight:650;
@@ -213,6 +226,10 @@ input.range::-moz-range-thumb{width:16px;height:16px;border-radius:50%;backgroun
 .advanced summary::before{content:"";width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:.2s;margin-left:2px}
 .advanced[open] summary::before{transform:rotate(45deg)}
 .advanced>div{margin-top:12px;display:flex;flex-direction:column;gap:12px}
+
+/* features.css
+ * Color wheel, catalog lists, effects, segments, presets and info panels.
+ */
 
 /* color */
 .wheel-wrap{display:flex;justify-content:center;padding:2px 0 16px}
@@ -392,6 +409,10 @@ body[data-mode="serial"] .conn-banner .dot{background:var(--green);box-shadow:0 
   border-radius:8px;padding:7px 9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .quick-command .btn{padding:5px 9px;font-size:10px}
 
+/* overlays.css
+ * Bottom tab bar, toast, modal dialogs and the serial console.
+ */
+
 /* bottom tabs */
 .tabbar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:45;display:flex;align-items:center;gap:3px;
   padding:5px;border-radius:999px;background:rgba(24,26,30,.92);border:1px solid var(--line);
@@ -477,6 +498,10 @@ body[data-mode="serial"] .terminal-head .dot{background:var(--green);box-shadow:
 .terminal-form input:focus{border-color:rgba(77,155,255,.5)}
 .terminal-form .btn{padding:6px 11px;font-size:10px}
 .terminal-hint{font-size:9px;color:var(--muted-2);padding:5px 12px 8px;border-top:1px solid var(--line-soft);background:rgba(255,255,255,.01)}
+
+/* responsive.css
+ * Breakpoints and reduced-motion overrides.
+ */
 
 @media(max-width:980px){
   .colors-grid,.effects-grid{grid-template-columns:1fr}
@@ -1052,6 +1077,13 @@ body[data-mode="serial"] .terminal-head .dot{background:var(--green);box-shadow:
 (() => {
 'use strict';
 
+/**
+ * core/constants.js
+ * Built-in effect/palette catalogs, palette gradients and static UI data.
+ */
+
+'use strict';
+
 /* ------------------------------------------------------------------ *
  *  Catalogs                                                           *
  * ------------------------------------------------------------------ */
@@ -1127,6 +1159,13 @@ const PRESET_SLOTS = 24;
 const EFFECT_STORE_KEY = 'wled.webserial.prefs.v1';
 const PRESET_STORE_KEY = 'wled.webserial.presets.v1';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/**
+ * core/utils.js
+ * DOM helpers, numeric and color conversions, and formatting utilities.
+ */
+
+'use strict';
 
 /* ------------------------------------------------------------------ *
  *  Utilities                                                          *
@@ -1213,6 +1252,13 @@ function getInfo() { return state.info || {}; }
 function getLedInfo() { return getInfo().leds || {}; }
 function maxSegments() { return Math.max(1, Number(getLedInfo().maxseg) || 16); }
 function totalLeds() { return Math.max(1, Number(getLedInfo().count) || 60); }
+
+/**
+ * core/state.js
+ * Persistent preferences, live application state and shared accessors.
+ */
+
+'use strict';
 
 /* ------------------------------------------------------------------ *
  *  State                                                              *
@@ -1356,6 +1402,66 @@ function setElRange(id, value) {
   const input = ui[id];
   if (input) { setRange(input, value); }
 }
+
+/**
+ * ui/feedback.js
+ * Serial console logging, toast notifications and clipboard copy.
+ */
+
+'use strict';
+
+function logLine(dir, text, label = '') {
+  if (!ui.terminalLog) return;
+  const nearBottom = ui.terminalLog.scrollHeight - ui.terminalLog.scrollTop - ui.terminalLog.clientHeight < 60;
+  const line = document.createElement('div');
+  line.className = 'log-line ' + dir;
+  const dirEl = document.createElement('span');
+  dirEl.className = 'dir';
+  dirEl.textContent = dir.toUpperCase();
+  const txt = document.createElement('span');
+  txt.className = 'txt';
+  const out = String(text);
+  txt.textContent = out.length > 5000 ? out.slice(0, 5000) + '…' : out;
+  line.append(dirEl, txt);
+  if (label) line.title = label;
+  ui.terminalLog.appendChild(line);
+  while (ui.terminalLog.children.length > 300) ui.terminalLog.firstElementChild.remove();
+  if (nearBottom) ui.terminalLog.scrollTop = ui.terminalLog.scrollHeight;
+}
+function showToast(message, type = 'success', duration = 3000) {
+  clearTimeout(toastTimer);
+  ui.toastText.textContent = message;
+  ui.toast.classList.remove('show', 'error', 'warn');
+  if (type === 'error') ui.toast.classList.add('error');
+  if (type === 'warn') ui.toast.classList.add('warn');
+  ui.toast.classList.add('show');
+  const icon = ui.toast.querySelector('use');
+  if (icon) icon.setAttribute('href', type === 'error' ? '#i-alert' : type === 'warn' ? '#i-alert' : '#i-check');
+  toastTimer = setTimeout(() => ui.toast.classList.remove('show'), duration);
+}
+
+function copyText(text, message = 'Copied to clipboard.') {
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showToast(message); } catch { showToast('Could not copy.', 'error'); }
+    ta.remove();
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => showToast(message)).catch(fallback);
+  } else fallback();
+}
+
+/**
+ * ui/render.js
+ * Render functions for every panel and widget.
+ */
+
+'use strict';
 
 /* ------------------------------------------------------------------ *
  *  Rendering: header, colors, lists                                   *
@@ -1570,43 +1676,6 @@ function renderEffectCurrent() {
 }
 function renderBrightnessAll() { renderBrightness(); }
 
-/* ------------------------------------------------------------------ *
- *  State changes                                                      *
- * ------------------------------------------------------------------ */
-function applyColor(r, g, b, w, opts = {}) {
-  const seg = activeSegment();
-  const slot = clamp(state.selectedSlot, 0, 2);
-  const c = [clamp(Math.round(r), 0, 255), clamp(Math.round(g), 0, 255), clamp(Math.round(b), 0, 255), clamp(Math.round(w ?? (seg.colors?.[slot]?.[3] || 0)), 0, 255)];
-  if (!Array.isArray(seg.colors)) seg.colors = [[0,0,0,0],[0,0,0,0],[0,0,0,0]];
-  seg.colors[slot] = c;
-  const hsv = rgbToHsv(c[0], c[1], c[2]);
-  state.hsv = { h: hsv.s > 0.1 ? hsv.h : state.hsv.h, s: hsv.s };
-  renderColor();
-  renderEffectCurrent();
-  if (opts.send !== false) {
-    queueJSON('color', { seg: [{ id: seg.id, col: seg.colors.map(x => x.map(n => Math.round(n))) }] });
-  }
-}
-function applyBrightness(value, opts = {}) {
-  const b = clamp(Math.round(value), 1, 255);
-  state.brightness = b;
-  if (state.on === false) { state.on = true; renderPower(); }
-  renderBrightness();
-  if (opts.send !== false) queueJSON('brightness', { on: true, bri: b });
-}
-function applyEffect(id, opts = {}) {
-  const seg = activeSegment();
-  seg.fx = clamp(Number(id) || 0, 0, 254);
-  renderEffectCurrent();
-  if (opts.send !== false) sendJSON({ seg: [{ id: seg.id, fx: seg.fx }] }, { verbose: true, label: 'effect' });
-}
-function applyPalette(id, opts = {}) {
-  const seg = activeSegment();
-  seg.pal = clamp(Number(id) || 0, 0, 255);
-  renderPaletteSelection();
-  renderEffectCurrent();
-  if (opts.send !== false) sendJSON({ seg: [{ id: seg.id, pal: seg.pal }] }, { verbose: true, label: 'palette' });
-}
 function markActiveSegmentCards() {
   if (!ui.segmentsGrid) return;
   $$('.segment-card', ui.segmentsGrid).forEach(card => {
@@ -1700,6 +1769,159 @@ function renderSegments() {
   ui.addSegmentBtn.title = state.segments.length >= max ? `Maximum of ${max} segments` : 'Add a segment';
   ui.addSegmentBtn.style.opacity = state.segments.length >= max ? '.55' : '';
 }
+
+function renderPresets() {
+  if (!ui.presetsGrid) return;
+  const frag = document.createDocumentFragment();
+  for (let id = 1; id <= PRESET_SLOTS; id++) {
+    const meta = presetStore.meta[id];
+    const card = document.createElement('div');
+    card.className = 'preset-card' + (meta ? '' : ' empty') + (state.currentPreset === id ? ' playing' : '');
+    card.dataset.slot = id;
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-label', meta ? `Apply preset ${meta.name}` : `Save to empty preset slot ${id}`);
+    if (meta) {
+      card.innerHTML = `
+        <div class="preset-top"><span class="preset-slot">${String(id).padStart(2, '0')}</span>
+          ${state.currentPreset === id ? '<span class="preset-status"><span class="state-dot on"></span>Playing</span>' : ''}
+        </div>
+        <span class="preset-name">${escapeHtml(meta.name || presetName(id))}</span>
+        <span class="preset-meta">${escapeHtml(effectName(meta.effect ?? 0))} · ${escapeHtml(paletteName(meta.palette ?? 0))}</span>
+        <span class="preset-strip" style="background:${meta.palette ? paletteGradient(meta.palette) : `linear-gradient(90deg,${rgbToHex((meta.rgb||[255,160,0])[0], (meta.rgb||[255,160,0])[1], (meta.rgb||[255,160,0])[2])},${rgbToHex((meta.rgb||[255,160,0])[0], (meta.rgb||[255,160,0])[1], (meta.rgb||[255,160,0])[2])})`}"></span>
+        <div class="preset-hover-actions">
+          <button class="icon-btn" data-action="overwrite" type="button" title="Overwrite with current state" aria-label="Overwrite preset"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
+          <button class="icon-btn" data-action="delete" type="button" title="Delete preset" aria-label="Delete preset"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>
+        </div>`;
+    } else {
+      card.innerHTML = `<div class="preset-top"><span class="preset-slot">${String(id).padStart(2, '0')}</span></div>
+        <div class="preset-add-through"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span>Save here</span></div>`;
+    }
+    frag.appendChild(card);
+  }
+  ui.presetsGrid.replaceChildren(frag);
+}
+
+function kvRow(k, v, cls = '') {
+  return `<div class="kv-row"><span class="k">${escapeHtml(k)}</span><span class="v ${cls}">${escapeHtml(String(v))}</span></div>`;
+}
+function renderInfo() {
+  if (!ui.connKv) return;
+  const info = getInfo();
+  const leds = getLedInfo();
+  const serialMode = state.mode === 'serial';
+  renderConnection();
+  ui.connKv.innerHTML = [
+    kvRow('Mode', serialMode ? 'Web Serial' : 'Preview', serialMode ? 'good' : 'warn'),
+    kvRow('Port', state.portLabel || '—'),
+    kvRow('Baud rate', prefs.baud + ' bps'),
+    kvRow('Terminator', prefs.lineEnding === 'lf' ? 'LF' : prefs.lineEnding === 'crlf' ? 'CRLF' : 'None'),
+    kvRow('Received', formatBytes(state.serialStats.rx)),
+    kvRow('Sent', formatBytes(state.serialStats.tx)),
+    kvRow('Last reply', timeAgo(state.lastRxAt))
+  ].join('');
+  ui.deviceKv.innerHTML = [
+    kvRow('Name', info.name || 'WLED'),
+    kvRow('Firmware', (info.ver || '?') + (info.vid ? ' · ' + info.vid : '')),
+    kvRow('Architecture', info.arch || '—'),
+    kvRow('Core', info.core || '—'),
+    kvRow('LED count', leds.count != null ? leds.count : '—'),
+    kvRow('Max segments', leds.maxseg != null ? leds.maxseg : '—'),
+    kvRow('Color', leds.rgbw ? 'RGBW' : (leds.lc & 4 ? 'CCT' : 'RGB')),
+    kvRow('Uptime', info.uptime != null ? formatUptime(info.uptime) : '—'),
+    kvRow('MAC', info.mac || '—')
+  ].join('');
+  ui.powerKv.innerHTML = [
+    kvRow('Current draw', leds.pwr != null ? `${leds.pwr} mA` : '—'),
+    kvRow('Power budget', leds.maxpwr != null ? `${leds.maxpwr} mA` : '—'),
+    kvRow('Frame rate', leds.fps != null ? `${leds.fps} fps` : '—'),
+    kvRow('Free heap', info.freeheap != null ? formatBytes(info.freeheap) : '—'),
+    kvRow('Build ID', info.vid || '—')
+  ].join('');
+  ui.deviceHint.textContent = state.infoIsDemo ? 'sample data' : 'from device';
+  ui.rawResponse.textContent = state.lastResponse
+    ? JSON.stringify(state.lastResponse, null, 2)
+    : (state.lastResponseText || 'No response yet. Connect a device and send {"v":true} to read state and info.');
+  renderConnection();
+}
+function renderTransition() {
+  const t = clamp(Number(state.transition) || 0, 0, 65.5);
+  setElRange('transitionSlider', t);
+  ui.transitionValue.textContent = t.toFixed(1) + ' s';
+}
+function renderNightlight() {
+  ui.timerBtn.classList.toggle('active', !!state.nightlight.on);
+  if (ui.nlEnabled) ui.nlEnabled.checked = !!state.nightlight.on;
+  if (ui.nlDuration) {
+    setElRange('nlDuration', state.nightlight.dur || 60);
+    ui.nlDurationValue.textContent = (state.nightlight.dur || 60) + ' min';
+    $$('.chip', ui.nlChips).forEach(c => c.classList.toggle('active', Number(c.dataset.dur) === Number(state.nightlight.dur)));
+  }
+  if (ui.nlMode) ui.nlMode.value = String(state.nightlight.mode ?? 1);
+  if (ui.nlTarget) ui.nlTarget.value = state.nightlight.tbri ?? 0;
+}
+
+function renderAll() {
+  renderConnection();
+  renderPower();
+  renderBrightness();
+  renderSegmentSelectors();
+  renderSegments();
+  renderColor();
+  renderEffectList();
+  renderEffectCurrent();
+  renderPaletteList();
+  renderTransition();
+  renderNightlight();
+  renderPresets();
+  renderStateTiles();
+  renderInfo();
+  if (ui.effectsCatalogInput) ui.effectsCatalogInput.value = JSON.stringify(effectCatalog);
+  if (ui.palettesCatalogInput) ui.palettesCatalogInput.value = JSON.stringify(paletteCatalog);
+}
+
+/**
+ * ui/actions.js
+ * User actions: color, brightness, effects, segments, presets and tabs.
+ */
+
+'use strict';
+
+function applyColor(r, g, b, w, opts = {}) {
+  const seg = activeSegment();
+  const slot = clamp(state.selectedSlot, 0, 2);
+  const c = [clamp(Math.round(r), 0, 255), clamp(Math.round(g), 0, 255), clamp(Math.round(b), 0, 255), clamp(Math.round(w ?? (seg.colors?.[slot]?.[3] || 0)), 0, 255)];
+  if (!Array.isArray(seg.colors)) seg.colors = [[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+  seg.colors[slot] = c;
+  const hsv = rgbToHsv(c[0], c[1], c[2]);
+  state.hsv = { h: hsv.s > 0.1 ? hsv.h : state.hsv.h, s: hsv.s };
+  renderColor();
+  renderEffectCurrent();
+  if (opts.send !== false) {
+    queueJSON('color', { seg: [{ id: seg.id, col: seg.colors.map(x => x.map(n => Math.round(n))) }] });
+  }
+}
+function applyBrightness(value, opts = {}) {
+  const b = clamp(Math.round(value), 1, 255);
+  state.brightness = b;
+  if (state.on === false) { state.on = true; renderPower(); }
+  renderBrightness();
+  if (opts.send !== false) queueJSON('brightness', { on: true, bri: b });
+}
+function applyEffect(id, opts = {}) {
+  const seg = activeSegment();
+  seg.fx = clamp(Number(id) || 0, 0, 254);
+  renderEffectCurrent();
+  if (opts.send !== false) sendJSON({ seg: [{ id: seg.id, fx: seg.fx }] }, { verbose: true, label: 'effect' });
+}
+function applyPalette(id, opts = {}) {
+  const seg = activeSegment();
+  seg.pal = clamp(Number(id) || 0, 0, 255);
+  renderPaletteSelection();
+  renderEffectCurrent();
+  if (opts.send !== false) sendJSON({ seg: [{ id: seg.id, pal: seg.pal }] }, { verbose: true, label: 'palette' });
+}
+
 function addSegment() {
   if (state.segments.length >= maxSegments()) {
     showToast(`This build supports ${maxSegments()} segments.`, 'warn');
@@ -1818,37 +2040,7 @@ function configureFourSegments() {
     }
   });
 }
-function renderPresets() {
-  if (!ui.presetsGrid) return;
-  const frag = document.createDocumentFragment();
-  for (let id = 1; id <= PRESET_SLOTS; id++) {
-    const meta = presetStore.meta[id];
-    const card = document.createElement('div');
-    card.className = 'preset-card' + (meta ? '' : ' empty') + (state.currentPreset === id ? ' playing' : '');
-    card.dataset.slot = id;
-    card.tabIndex = 0;
-    card.setAttribute('role', 'button');
-    card.setAttribute('aria-label', meta ? `Apply preset ${meta.name}` : `Save to empty preset slot ${id}`);
-    if (meta) {
-      card.innerHTML = `
-        <div class="preset-top"><span class="preset-slot">${String(id).padStart(2, '0')}</span>
-          ${state.currentPreset === id ? '<span class="preset-status"><span class="state-dot on"></span>Playing</span>' : ''}
-        </div>
-        <span class="preset-name">${escapeHtml(meta.name || presetName(id))}</span>
-        <span class="preset-meta">${escapeHtml(effectName(meta.effect ?? 0))} · ${escapeHtml(paletteName(meta.palette ?? 0))}</span>
-        <span class="preset-strip" style="background:${meta.palette ? paletteGradient(meta.palette) : `linear-gradient(90deg,${rgbToHex((meta.rgb||[255,160,0])[0], (meta.rgb||[255,160,0])[1], (meta.rgb||[255,160,0])[2])},${rgbToHex((meta.rgb||[255,160,0])[0], (meta.rgb||[255,160,0])[1], (meta.rgb||[255,160,0])[2])})`}"></span>
-        <div class="preset-hover-actions">
-          <button class="icon-btn" data-action="overwrite" type="button" title="Overwrite with current state" aria-label="Overwrite preset"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
-          <button class="icon-btn" data-action="delete" type="button" title="Delete preset" aria-label="Delete preset"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg></button>
-        </div>`;
-    } else {
-      card.innerHTML = `<div class="preset-top"><span class="preset-slot">${String(id).padStart(2, '0')}</span></div>
-        <div class="preset-add-through"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span>Save here</span></div>`;
-    }
-    frag.appendChild(card);
-  }
-  ui.presetsGrid.replaceChildren(frag);
-}
+
 function applyPreset(id) {
   const meta = presetStore.meta[id];
   state.currentPreset = id;
@@ -1937,64 +2129,7 @@ function deletePreset(id) {
     }
   });
 }
-function kvRow(k, v, cls = '') {
-  return `<div class="kv-row"><span class="k">${escapeHtml(k)}</span><span class="v ${cls}">${escapeHtml(String(v))}</span></div>`;
-}
-function renderInfo() {
-  if (!ui.connKv) return;
-  const info = getInfo();
-  const leds = getLedInfo();
-  const serialMode = state.mode === 'serial';
-  renderConnection();
-  ui.connKv.innerHTML = [
-    kvRow('Mode', serialMode ? 'Web Serial' : 'Preview', serialMode ? 'good' : 'warn'),
-    kvRow('Port', state.portLabel || '—'),
-    kvRow('Baud rate', prefs.baud + ' bps'),
-    kvRow('Terminator', prefs.lineEnding === 'lf' ? 'LF' : prefs.lineEnding === 'crlf' ? 'CRLF' : 'None'),
-    kvRow('Received', formatBytes(state.serialStats.rx)),
-    kvRow('Sent', formatBytes(state.serialStats.tx)),
-    kvRow('Last reply', timeAgo(state.lastRxAt))
-  ].join('');
-  ui.deviceKv.innerHTML = [
-    kvRow('Name', info.name || 'WLED'),
-    kvRow('Firmware', (info.ver || '?') + (info.vid ? ' · ' + info.vid : '')),
-    kvRow('Architecture', info.arch || '—'),
-    kvRow('Core', info.core || '—'),
-    kvRow('LED count', leds.count != null ? leds.count : '—'),
-    kvRow('Max segments', leds.maxseg != null ? leds.maxseg : '—'),
-    kvRow('Color', leds.rgbw ? 'RGBW' : (leds.lc & 4 ? 'CCT' : 'RGB')),
-    kvRow('Uptime', info.uptime != null ? formatUptime(info.uptime) : '—'),
-    kvRow('MAC', info.mac || '—')
-  ].join('');
-  ui.powerKv.innerHTML = [
-    kvRow('Current draw', leds.pwr != null ? `${leds.pwr} mA` : '—'),
-    kvRow('Power budget', leds.maxpwr != null ? `${leds.maxpwr} mA` : '—'),
-    kvRow('Frame rate', leds.fps != null ? `${leds.fps} fps` : '—'),
-    kvRow('Free heap', info.freeheap != null ? formatBytes(info.freeheap) : '—'),
-    kvRow('Build ID', info.vid || '—')
-  ].join('');
-  ui.deviceHint.textContent = state.infoIsDemo ? 'sample data' : 'from device';
-  ui.rawResponse.textContent = state.lastResponse
-    ? JSON.stringify(state.lastResponse, null, 2)
-    : (state.lastResponseText || 'No response yet. Connect a device and send {"v":true} to read state and info.');
-  renderConnection();
-}
-function renderTransition() {
-  const t = clamp(Number(state.transition) || 0, 0, 65.5);
-  setElRange('transitionSlider', t);
-  ui.transitionValue.textContent = t.toFixed(1) + ' s';
-}
-function renderNightlight() {
-  ui.timerBtn.classList.toggle('active', !!state.nightlight.on);
-  if (ui.nlEnabled) ui.nlEnabled.checked = !!state.nightlight.on;
-  if (ui.nlDuration) {
-    setElRange('nlDuration', state.nightlight.dur || 60);
-    ui.nlDurationValue.textContent = (state.nightlight.dur || 60) + ' min';
-    $$('.chip', ui.nlChips).forEach(c => c.classList.toggle('active', Number(c.dataset.dur) === Number(state.nightlight.dur)));
-  }
-  if (ui.nlMode) ui.nlMode.value = String(state.nightlight.mode ?? 1);
-  if (ui.nlTarget) ui.nlTarget.value = state.nightlight.tbri ?? 0;
-}
+
 function switchTab(tab) {
   if (!['colors','effects','segments','presets','info'].includes(tab)) tab = 'colors';
   state.activeTab = tab;
@@ -2008,6 +2143,195 @@ function switchTab(tab) {
   if (tab === 'colors') { renderPaletteList(); renderColor(); }
   window.scrollTo({ top: 0, behavior: 'auto' });
 }
+
+function setActiveSegment(id) {
+  if (!state.segments.some(s => s.id === Number(id))) return;
+  flushChannels();
+  state.activeSegmentId = Number(id);
+  state.selectedSlot = 0;
+  renderSegments();
+  renderSegmentSelectors();
+  renderColor();
+  renderEffectCurrent();
+}
+function togglePower() {
+  flushChannels();
+  state.on = !state.on;
+  renderPower();
+  sendJSON({ on: state.on }, { label: 'power' });
+  if (state.mode === 'preview') showToast(state.on ? 'Preview: light on' : 'Preview: light off');
+}
+
+function applyCatalog(kind) {
+  const isEffects = kind === 'effects';
+  const textarea = isEffects ? ui.effectsCatalogInput : ui.palettesCatalogInput;
+  let parsed;
+  try { parsed = JSON.parse(textarea.value); }
+  catch { showToast('Catalog must be valid JSON.', 'error'); return; }
+  if (!Array.isArray(parsed) || !parsed.every(v => typeof v === 'string')) {
+    showToast('Catalog must be a JSON array of strings.', 'error'); return;
+  }
+  if (!parsed.length) { showToast('Catalog is empty.', 'error'); return; }
+  if (isEffects) {
+    effectCatalog = parsed.slice(0, 255);
+    renderEffectList();
+    renderEffectCurrent();
+  } else {
+    paletteCatalog = parsed.slice(0, 256);
+    renderPaletteList();
+    renderEffectCurrent();
+  }
+  savePrefs();
+  textarea.value = JSON.stringify(isEffects ? effectCatalog : paletteCatalog);
+  showToast(`${isEffects ? 'Effect' : 'Palette'} catalog updated.`);
+}
+
+function applyNightlight() {
+  const on = !!ui.nlEnabled.checked;
+  const dur = clamp(Math.round(Number(ui.nlDuration.value) || 60), 1, 240);
+  const mode = clamp(Math.round(Number(ui.nlMode.value) || 0), 0, 4);
+  const tbri = clamp(Math.round(Number(ui.nlTarget.value) || 0), 0, 255);
+  flushChannels();
+  state.nightlight = { on, dur, mode, tbri, rem: on ? dur * 60 : -1 };
+  sendJSON({ nl: on ? { on: true, dur, mode, tbri } : { on: false } }, { label: 'nightlight' });
+  renderNightlight();
+  ui.timerDialog.close();
+  showToast(on ? `Nightlight set for ${dur} minutes.` : 'Nightlight disabled.');
+}
+
+function resetCatalog(kind) {
+  const isEffects = kind === 'effects';
+  if (isEffects) {
+    effectCatalog = DEFAULT_EFFECTS.slice();
+    ui.effectsCatalogInput.value = JSON.stringify(effectCatalog);
+    renderEffectList();
+    renderEffectCurrent();
+  } else {
+    paletteCatalog = DEFAULT_PALETTES.slice();
+    ui.palettesCatalogInput.value = JSON.stringify(paletteCatalog);
+    renderPaletteList();
+    renderEffectCurrent();
+  }
+  savePrefs();
+  showToast(`Default ${isEffects ? 'effect' : 'palette'} catalog restored.`);
+}
+
+function requestState() {
+  lastUserActivity = Date.now();
+  if (state.mode === 'serial') {
+    sendJSON({ v: true }, { label: 'state refresh' });
+    showToast('State requested from WLED.');
+  } else {
+    renderAll();
+    showToast('Preview state refreshed.');
+  }
+}
+function firstEmptyPresetSlot() {
+  for (let id = 1; id <= PRESET_SLOTS; id++) {
+    if (!presetStore.meta[id]) return id;
+  }
+  return 1;
+}
+
+function applyHexInput() {
+  const c = hexToRgb(ui.hexInput.value);
+  if (!c) {
+    showToast('Enter a 6- or 8-digit hex color.', 'error');
+    ui.hexInput.focus();
+    ui.hexInput.select();
+    return;
+  }
+  applyColor(c.r, c.g, c.b, c.w, { send: true });
+}
+function applyHsvColor(h, s) {
+  const sat = clamp(s, 0, 100);
+  const hue = ((h % 360) + 360) % 360;
+  state.hsv = { h: hue, s: sat };
+  const rgb = hsvToRgb(hue, sat, 100);
+  applyColor(rgb.r, rgb.g, rgb.b, activeColor().w, { send: true });
+}
+function updateFromWheel(e) {
+  const rect = ui.colorWheel.getBoundingClientRect();
+  const radius = rect.width / 2;
+  if (!radius) return;
+  const dx = e.clientX - (rect.left + radius);
+  const dy = e.clientY - (rect.top + radius);
+  const dist = Math.min(Math.hypot(dx, dy), radius);
+  const hue = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+  const sat = clamp((dist / radius) * 100, 0, 100);
+  applyHsvColor(hue, sat);
+}
+function presetCardAction(card) {
+  if (!card) return;
+  const id = Number(card.dataset.slot);
+  if (presetStore.meta[id]) applyPreset(id);
+  else openPresetDialog(id);
+}
+
+/**
+ * ui/dialogs.js
+ * Modal dialogs: settings, confirmations, console and nightlight.
+ */
+
+'use strict';
+
+function openSettings() {
+  if (!ui.settingsDialog) return;
+  renderConnection();
+  ui.baudSelect.value = String(prefs.baud);
+  ui.lineEndingSelect.value = prefs.lineEnding;
+  ui.autoSyncToggle.checked = !!prefs.autoSync;
+  if (!serialSupported()) {
+    ui.browserSupportNote.className = 'callout';
+    ui.browserSupportNote.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span>Web Serial is not available in this browser. Use Chrome, Edge or Opera on desktop and serve the file from HTTPS or localhost.</span>';
+    ui.connectBtn.disabled = true;
+    ui.connectBtn.style.opacity = '.5';
+  } else {
+    ui.browserSupportNote.className = 'callout info';
+    ui.browserSupportNote.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span>Web Serial works in Chromium-based desktop browsers over HTTPS or localhost. Close any other serial monitor before connecting.</span>';
+    ui.connectBtn.disabled = false;
+    ui.connectBtn.style.opacity = '';
+  }
+  if (!ui.settingsDialog.open) ui.settingsDialog.showModal();
+}
+function confirmAction({ title, message, okLabel = 'Confirm', danger = false, onConfirm }) {
+  confirmCallback = onConfirm || null;
+  ui.confirmTitle.textContent = title;
+  ui.confirmSub.textContent = danger ? 'This action cannot be undone.' : 'Please confirm.';
+  ui.confirmMessage.textContent = message || '';
+  ui.confirmOkBtn.textContent = okLabel;
+  ui.confirmOkBtn.classList.toggle('btn-danger', !!danger);
+  ui.confirmOkBtn.classList.toggle('btn-primary', !danger);
+  ui.confirmDialog.showModal();
+}
+
+function openTerminal() {
+  state.terminalOpen = true;
+  ui.terminal.classList.add('open');
+  ui.terminal.setAttribute('aria-hidden', 'false');
+  if (!ui.terminalLog.children.length) {
+    logLine('sys', 'WLED Web Serial console ready. Commands are sent as raw JSON text.');
+    logLine('sys', serialSupported() ? 'Web Serial API detected.' : 'Web Serial API unavailable in this browser.');
+  }
+  setTimeout(() => ui.terminalInput.focus(), 80);
+}
+function closeTerminal() {
+  state.terminalOpen = false;
+  ui.terminal.classList.remove('open');
+  ui.terminal.setAttribute('aria-hidden', 'true');
+}
+
+function openTimerDialog() {
+  renderNightlight();
+  if (!ui.timerDialog.open) ui.timerDialog.showModal();
+}
+
+/**
+ * transport/serial.js
+ * Web Serial link, JSON transmit queue, reply parsing and state sync.
+ */
+
+'use strict';
 
 /* ------------------------------------------------------------------ *
  *  Serial bridge                                                      *
@@ -2039,35 +2363,7 @@ function scheduleStatsRender() {
     renderConnection();
   }, 300);
 }
-function logLine(dir, text, label = '') {
-  if (!ui.terminalLog) return;
-  const nearBottom = ui.terminalLog.scrollHeight - ui.terminalLog.scrollTop - ui.terminalLog.clientHeight < 60;
-  const line = document.createElement('div');
-  line.className = 'log-line ' + dir;
-  const dirEl = document.createElement('span');
-  dirEl.className = 'dir';
-  dirEl.textContent = dir.toUpperCase();
-  const txt = document.createElement('span');
-  txt.className = 'txt';
-  const out = String(text);
-  txt.textContent = out.length > 5000 ? out.slice(0, 5000) + '…' : out;
-  line.append(dirEl, txt);
-  if (label) line.title = label;
-  ui.terminalLog.appendChild(line);
-  while (ui.terminalLog.children.length > 300) ui.terminalLog.firstElementChild.remove();
-  if (nearBottom) ui.terminalLog.scrollTop = ui.terminalLog.scrollHeight;
-}
-function showToast(message, type = 'success', duration = 3000) {
-  clearTimeout(toastTimer);
-  ui.toastText.textContent = message;
-  ui.toast.classList.remove('show', 'error', 'warn');
-  if (type === 'error') ui.toast.classList.add('error');
-  if (type === 'warn') ui.toast.classList.add('warn');
-  ui.toast.classList.add('show');
-  const icon = ui.toast.querySelector('use');
-  if (icon) icon.setAttribute('href', type === 'error' ? '#i-alert' : type === 'warn' ? '#i-alert' : '#i-check');
-  toastTimer = setTimeout(() => ui.toast.classList.remove('show'), duration);
-}
+
 function sendRawText(text) {
   if (state.mode !== 'serial' || !serial.port) {
     logLine('tx', text, 'preview');
@@ -2471,127 +2767,12 @@ function savePrefs() {
   saveJSON(EFFECT_STORE_KEY, prefs);
 }
 
-function renderAll() {
-  renderConnection();
-  renderPower();
-  renderBrightness();
-  renderSegmentSelectors();
-  renderSegments();
-  renderColor();
-  renderEffectList();
-  renderEffectCurrent();
-  renderPaletteList();
-  renderTransition();
-  renderNightlight();
-  renderPresets();
-  renderStateTiles();
-  renderInfo();
-  if (ui.effectsCatalogInput) ui.effectsCatalogInput.value = JSON.stringify(effectCatalog);
-  if (ui.palettesCatalogInput) ui.palettesCatalogInput.value = JSON.stringify(paletteCatalog);
-}
-function setActiveSegment(id) {
-  if (!state.segments.some(s => s.id === Number(id))) return;
-  flushChannels();
-  state.activeSegmentId = Number(id);
-  state.selectedSlot = 0;
-  renderSegments();
-  renderSegmentSelectors();
-  renderColor();
-  renderEffectCurrent();
-}
-function togglePower() {
-  flushChannels();
-  state.on = !state.on;
-  renderPower();
-  sendJSON({ on: state.on }, { label: 'power' });
-  if (state.mode === 'preview') showToast(state.on ? 'Preview: light on' : 'Preview: light off');
-}
-function openSettings() {
-  if (!ui.settingsDialog) return;
-  renderConnection();
-  ui.baudSelect.value = String(prefs.baud);
-  ui.lineEndingSelect.value = prefs.lineEnding;
-  ui.autoSyncToggle.checked = !!prefs.autoSync;
-  if (!serialSupported()) {
-    ui.browserSupportNote.className = 'callout';
-    ui.browserSupportNote.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span>Web Serial is not available in this browser. Use Chrome, Edge or Opera on desktop and serve the file from HTTPS or localhost.</span>';
-    ui.connectBtn.disabled = true;
-    ui.connectBtn.style.opacity = '.5';
-  } else {
-    ui.browserSupportNote.className = 'callout info';
-    ui.browserSupportNote.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span>Web Serial works in Chromium-based desktop browsers over HTTPS or localhost. Close any other serial monitor before connecting.</span>';
-    ui.connectBtn.disabled = false;
-    ui.connectBtn.style.opacity = '';
-  }
-  if (!ui.settingsDialog.open) ui.settingsDialog.showModal();
-}
-function confirmAction({ title, message, okLabel = 'Confirm', danger = false, onConfirm }) {
-  confirmCallback = onConfirm || null;
-  ui.confirmTitle.textContent = title;
-  ui.confirmSub.textContent = danger ? 'This action cannot be undone.' : 'Please confirm.';
-  ui.confirmMessage.textContent = message || '';
-  ui.confirmOkBtn.textContent = okLabel;
-  ui.confirmOkBtn.classList.toggle('btn-danger', !!danger);
-  ui.confirmOkBtn.classList.toggle('btn-primary', !danger);
-  ui.confirmDialog.showModal();
-}
-function openTerminal() {
-  state.terminalOpen = true;
-  ui.terminal.classList.add('open');
-  ui.terminal.setAttribute('aria-hidden', 'false');
-  if (!ui.terminalLog.children.length) {
-    logLine('sys', 'WLED Web Serial console ready. Commands are sent as raw JSON text.');
-    logLine('sys', serialSupported() ? 'Web Serial API detected.' : 'Web Serial API unavailable in this browser.');
-  }
-  setTimeout(() => ui.terminalInput.focus(), 80);
-}
-function closeTerminal() {
-  state.terminalOpen = false;
-  ui.terminal.classList.remove('open');
-  ui.terminal.setAttribute('aria-hidden', 'true');
-}
-function copyText(text, message = 'Copied to clipboard.') {
-  const fallback = () => {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); showToast(message); } catch { showToast('Could not copy.', 'error'); }
-    ta.remove();
-  };
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(() => showToast(message)).catch(fallback);
-  } else fallback();
-}
-function applyCatalog(kind) {
-  const isEffects = kind === 'effects';
-  const textarea = isEffects ? ui.effectsCatalogInput : ui.palettesCatalogInput;
-  let parsed;
-  try { parsed = JSON.parse(textarea.value); }
-  catch { showToast('Catalog must be valid JSON.', 'error'); return; }
-  if (!Array.isArray(parsed) || !parsed.every(v => typeof v === 'string')) {
-    showToast('Catalog must be a JSON array of strings.', 'error'); return;
-  }
-  if (!parsed.length) { showToast('Catalog is empty.', 'error'); return; }
-  if (isEffects) {
-    effectCatalog = parsed.slice(0, 255);
-    renderEffectList();
-    renderEffectCurrent();
-  } else {
-    paletteCatalog = parsed.slice(0, 256);
-    renderPaletteList();
-    renderEffectCurrent();
-  }
-  savePrefs();
-  textarea.value = JSON.stringify(isEffects ? effectCatalog : paletteCatalog);
-  showToast(`${isEffects ? 'Effect' : 'Palette'} catalog updated.`);
-}
+/**
+ * ui/events.js
+ * DOM element cache and every event binding.
+ */
 
-
-
-
+'use strict';
 
 /* ------------------------------------------------------------------ *
  *  UI helpers                                                         *
@@ -2603,88 +2784,6 @@ function cacheEls() {
     if (el.namespaceURI === 'http://www.w3.org/2000/svg') return;
     ui[el.id] = el;
   });
-}
-function openTimerDialog() {
-  renderNightlight();
-  if (!ui.timerDialog.open) ui.timerDialog.showModal();
-}
-function applyNightlight() {
-  const on = !!ui.nlEnabled.checked;
-  const dur = clamp(Math.round(Number(ui.nlDuration.value) || 60), 1, 240);
-  const mode = clamp(Math.round(Number(ui.nlMode.value) || 0), 0, 4);
-  const tbri = clamp(Math.round(Number(ui.nlTarget.value) || 0), 0, 255);
-  flushChannels();
-  state.nightlight = { on, dur, mode, tbri, rem: on ? dur * 60 : -1 };
-  sendJSON({ nl: on ? { on: true, dur, mode, tbri } : { on: false } }, { label: 'nightlight' });
-  renderNightlight();
-  ui.timerDialog.close();
-  showToast(on ? `Nightlight set for ${dur} minutes.` : 'Nightlight disabled.');
-}
-function resetCatalog(kind) {
-  const isEffects = kind === 'effects';
-  if (isEffects) {
-    effectCatalog = DEFAULT_EFFECTS.slice();
-    ui.effectsCatalogInput.value = JSON.stringify(effectCatalog);
-    renderEffectList();
-    renderEffectCurrent();
-  } else {
-    paletteCatalog = DEFAULT_PALETTES.slice();
-    ui.palettesCatalogInput.value = JSON.stringify(paletteCatalog);
-    renderPaletteList();
-    renderEffectCurrent();
-  }
-  savePrefs();
-  showToast(`Default ${isEffects ? 'effect' : 'palette'} catalog restored.`);
-}
-function requestState() {
-  lastUserActivity = Date.now();
-  if (state.mode === 'serial') {
-    sendJSON({ v: true }, { label: 'state refresh' });
-    showToast('State requested from WLED.');
-  } else {
-    renderAll();
-    showToast('Preview state refreshed.');
-  }
-}
-function firstEmptyPresetSlot() {
-  for (let id = 1; id <= PRESET_SLOTS; id++) {
-    if (!presetStore.meta[id]) return id;
-  }
-  return 1;
-}
-function applyHexInput() {
-  const c = hexToRgb(ui.hexInput.value);
-  if (!c) {
-    showToast('Enter a 6- or 8-digit hex color.', 'error');
-    ui.hexInput.focus();
-    ui.hexInput.select();
-    return;
-  }
-  applyColor(c.r, c.g, c.b, c.w, { send: true });
-}
-function applyHsvColor(h, s) {
-  const sat = clamp(s, 0, 100);
-  const hue = ((h % 360) + 360) % 360;
-  state.hsv = { h: hue, s: sat };
-  const rgb = hsvToRgb(hue, sat, 100);
-  applyColor(rgb.r, rgb.g, rgb.b, activeColor().w, { send: true });
-}
-function updateFromWheel(e) {
-  const rect = ui.colorWheel.getBoundingClientRect();
-  const radius = rect.width / 2;
-  if (!radius) return;
-  const dx = e.clientX - (rect.left + radius);
-  const dy = e.clientY - (rect.top + radius);
-  const dist = Math.min(Math.hypot(dx, dy), radius);
-  const hue = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
-  const sat = clamp((dist / radius) * 100, 0, 100);
-  applyHsvColor(hue, sat);
-}
-function presetCardAction(card) {
-  if (!card) return;
-  const id = Number(card.dataset.slot);
-  if (presetStore.meta[id]) applyPreset(id);
-  else openPresetDialog(id);
 }
 
 /* ------------------------------------------------------------------ *
@@ -3110,6 +3209,13 @@ function bindEvents() {
   }
 }
 
+/**
+ * app.js
+ * Startup sequence and the idle state-sync timer.
+ */
+
+'use strict';
+
 /* ------------------------------------------------------------------ *
  *  Boot                                                               *
  * ------------------------------------------------------------------ */
@@ -3153,6 +3259,7 @@ try {
   const loaderText = document.querySelector('.boot-text');
   if (loaderText) loaderText.textContent = 'Initialization failed. See console.';
 }
+
 })();
 </script>
 </body>
