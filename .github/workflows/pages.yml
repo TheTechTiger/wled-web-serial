@@ -28,9 +28,13 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@v3
         with:
           path: .
+      # The artifact service can take a moment to make the new artifact
+      # visible to deploy-pages; avoid a race on fast uploads.
+      - name: Wait for artifact registration
+        run: sleep 10
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@v4
